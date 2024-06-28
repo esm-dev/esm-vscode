@@ -2,7 +2,7 @@
   "name": "esm-vscode",
   "version": "0.0.6",
   "displayName": "esm.sh",
-  "description": "Loading types from esm.sh CDN.",
+  "description": "Loading types from esm.sh CDN from http imports.",
   "publisher": "ije",
   "activationEvents": [
     "onLanguage:html",
@@ -47,7 +47,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/esm-dev/esm.sh.git"
+    "url": "git+https://github.com/esm-dev/esm-vscode"
   },
   "bugs": {
     "url": "https://github.com/esm-dev/esm.sh/issues"
