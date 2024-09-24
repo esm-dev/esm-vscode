@@ -13,16 +13,12 @@ export interface ImportMap {
 export interface PreprocessedImportMap {
   jsxImportSource?: string;
   imports?: Record<string, string>;
-  trailingSlash?: [string, string][];
-}
-
-export interface ProjectConfig {
-  importMap: PreprocessedImportMap;
+  trailingSlashImports?: [string, string][];
 }
 
 class Plugin implements TS.server.PluginModule {
   #typescript: typeof TS;
-  #projectConfig: ProjectConfig = { importMap: {} };
+  #importMap?: PreprocessedImportMap;
   #declMap = new Map<string, Promise<void> | string | 404>();
   #logger: { info(s: string, ...args: any[]): void } = { info() {} };
   #refresh = () => {};
@@ -43,33 +39,22 @@ class Plugin implements TS.server.PluginModule {
       mkdirSync(esmCacheMetaDir, { recursive: true });
     }
 
-    // @ts-ignore
-    this.#logger = DEBUG
-      ? {
-        info(s: string, ...args: any[]) {
-          const filename = join(cwd, "typescript-esmsh-plugin.log");
-          if (!this._reset) {
-            this._reset = true;
-            writeFileSync(filename, "", {
-              encoding: "utf8",
-              flag: "w",
-              mode: 0o666,
-            });
-          }
+    // @ts-ignore DEBUG is defined at build time
+    if (DEBUG) {
+      const logFilepath = join(cwd, "typescript-esmsh-plugin.log");
+      writeFileSync(logFilepath, "", { encoding: "utf8", flag: "w", mode: 0o666 });
+      this.#logger = {
+        info: (s: string, ...args: any[]) => {
           const lines = [s];
           if (args.length) {
             lines.push("---");
             lines.push(...args.map((arg) => JSON.stringify(arg, undefined, 2)));
             lines.push("---");
           }
-          writeFileSync(filename, lines.join("\n") + "\n", {
-            encoding: "utf8",
-            flag: "a+",
-            mode: 0o666,
-          });
+          writeFileSync(logFilepath, lines.join("\n") + "\n", { encoding: "utf8", flag: "a+", mode: 0o666 });
         },
-      }
-      : { info() {} };
+      };
+    }
 
     // reload projects and refresh diagnostics
     this.#refresh = () => {
@@ -91,22 +76,27 @@ class Plugin implements TS.server.PluginModule {
     }
 
     // rewrite TS compiler options
-    const getCompilationSettings = languageServiceHost
-      .getCompilationSettings.bind(languageServiceHost);
+    const getCompilationSettings = languageServiceHost.getCompilationSettings.bind(languageServiceHost);
     languageServiceHost.getCompilationSettings = () => {
       const settings: TS.CompilerOptions = getCompilationSettings();
-      const jsxImportSource = this.#projectConfig?.importMap.jsxImportSource;
-      if (jsxImportSource && !settings.jsxImportSource) {
-        settings.jsx = this.#typescript.JsxEmit.ReactJSX;
-        settings.jsxImportSource = jsxImportSource;
+      if (this.#importMap) {
+        const jsxImportSource = this.#importMap.jsxImportSource;
+        if (jsxImportSource) {
+          settings.jsx = 4; // TS.JsxEmit.React
+          settings.jsxImportSource = jsxImportSource;
+        }
+        settings.allowImportingTsExtensions = true;
+        settings.noEmit = true;
+        settings.target = 99; // TS.ScriptTarget.ESNext;
+        settings.moduleResolution = 100; // TS.ModuleResolutionKind.Bundler
+        settings.moduleDetection = 3; // TS.ModuleDetectionKind.Force
+        settings.isolatedModules = true;
       }
-      settings.allowImportingTsExtensions = true;
       return settings;
     };
 
     // rewrite TS module resolution
-    const resolveModuleNameLiterals = languageServiceHost
-      .resolveModuleNameLiterals?.bind(languageServiceHost);
+    const resolveModuleNameLiterals = languageServiceHost.resolveModuleNameLiterals?.bind(languageServiceHost);
     if (resolveModuleNameLiterals) {
       const resolvedModule = (resolvedFileName: string, extension: string) => {
         const resolvedUsingTsExtension = extension === ".d.ts";
@@ -179,10 +169,7 @@ class Plugin implements TS.server.PluginModule {
                   this.#declMap.delete(specifier);
                 };
                 const load = () =>
-                  fetch(
-                    specifier,
-                    { headers: { "user-agent": "Deno/1.38.0" } },
-                  ).then<string | 404>((res) => {
+                  fetch(specifier, { headers: { "user-agent": "Deno/1.38.0" } }).then<string | 404>((res) => {
                     if (!res.ok) {
                       res.body?.cancel();
                       if (res.status === 404) {
@@ -208,8 +195,7 @@ class Plugin implements TS.server.PluginModule {
                 return resolvedModule(specifier, ".js");
               }
             } else {
-              const urlHash = createHash("sha256").update(specifier)
-                .digest("hex");
+              const urlHash = createHash("sha256").update(specifier).digest("hex");
               const metaFile = join(esmCacheMetaDir, urlHash);
               if (existsSync(metaFile)) {
                 const meta = JSON.parse(readFileSync(metaFile, "utf-8"));
@@ -228,7 +214,7 @@ class Plugin implements TS.server.PluginModule {
                     method: "HEAD",
                     headers: {
                       "user-agent":
-                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
                     },
                   }).then((res) => {
                     res.body?.cancel();
@@ -251,10 +237,7 @@ class Plugin implements TS.server.PluginModule {
                     this.#declMap.set(specifier, "");
                     this.#refresh();
                   } else if (dtsUrl) {
-                    fetch(
-                      dtsUrl,
-                      { headers: { "user-agent": "Deno/1.38.0" } },
-                    ).then((res) => {
+                    fetch(dtsUrl, { headers: { "user-agent": "Deno/1.38.0" } }).then((res) => {
                       if (!res.ok) {
                         res.body?.cancel();
                         return Promise.reject(res.statusText);
@@ -287,13 +270,9 @@ class Plugin implements TS.server.PluginModule {
       };
     }
 
-    // filter invalid auto imports
+    // fix invalid auto imports
     const getCompletionsAtPosition = languageService.getCompletionsAtPosition;
-    languageService.getCompletionsAtPosition = (
-      fileName,
-      position,
-      options,
-    ) => {
+    languageService.getCompletionsAtPosition = (fileName, position, options) => {
       const result = getCompletionsAtPosition(fileName, position, options);
       if (result) {
         result.entries = result.entries.filter((entry) => {
@@ -308,20 +287,27 @@ class Plugin implements TS.server.PluginModule {
     return languageService;
   }
 
-  onConfigurationChanged(config: any): void {
+  onConfigurationChanged(config: { importMap?: ImportMap }): void {
     this.#logger.info("onConfigurationChanged", config);
-    this.#preprocessImportMap(config.importMap);
+    if (config.importMap) {
+      this.#preprocessImportMap(config.importMap);
+    } else {
+      this.#importMap = undefined;
+    }
     this.#refresh();
   }
 
   #applyImportMap(specifier: string) {
-    const { importMap } = this.#projectConfig;
-    const res = importMap.imports?.[specifier];
+    if (!this.#importMap) {
+      return specifier;
+    }
+    const { imports, trailingSlashImports } = this.#importMap;
+    const res = imports?.[specifier];
     if (res) {
       return res;
     }
-    if (importMap.trailingSlash?.length) {
-      for (const [prefix, replacement] of importMap.trailingSlash) {
+    if (trailingSlashImports?.length) {
+      for (const [prefix, replacement] of trailingSlashImports) {
         if (specifier.startsWith(prefix)) {
           return replacement + specifier.slice(prefix.length);
         }
@@ -338,10 +324,9 @@ class Plugin implements TS.server.PluginModule {
           continue;
         }
         if (v.endsWith("/")) {
-          (importMap.trailingSlash ?? (importMap.trailingSlash = []))
-            .push([k, v]);
+          (importMap.trailingSlashImports ?? (importMap.trailingSlashImports = [])).push([k, v]);
         } else {
-          if (k === "@jsxImportSource") {
+          if (k === "@jsxImportSource" || k === "@jsxRuntime") {
             importMap.jsxImportSource = v;
           }
           (importMap.imports ?? (importMap.imports = {}))[k] = v;
@@ -349,9 +334,9 @@ class Plugin implements TS.server.PluginModule {
       }
     }
     // sort trailingSlash by prefix length
-    importMap.trailingSlash?.sort((a, b) => b[0].split("/").length - a[0].split("/").length);
-    // TODO: scopes
-    this.#projectConfig.importMap = importMap;
+    importMap.trailingSlashImports?.sort((a, b) => b[0].split("/").length - a[0].split("/").length);
+    this.#importMap = importMap;
+    // TODO: parse `scopes`
   }
 }
 

@@ -1,12 +1,6 @@
 import * as vscode from "vscode";
 import type { ImportMap } from "./typescript-esmsh-plugin.ts";
-import {
-  debunce,
-  getImportMapFromHtml,
-  insertImportMap,
-  regexpNpmNaming,
-  sortByVersion,
-} from "./util.ts";
+import { debunce, getImportMapFromHtml, insertImportMap, regexpNpmNaming, sortByVersion } from "./util.ts";
 
 interface ProjectConfig {
   importMap?: ImportMap;
@@ -19,7 +13,6 @@ interface TSApi {
 const jsxRuntimes = [
   "react",
   "preact",
-  "solid-js",
 ];
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -67,10 +60,7 @@ export async function activate(context: vscode.ExtensionContext) {
               pkgName = parts[1];
             }
             pkgName = pkgName.split("@")[0];
-            if (
-              (scope && !regexpNpmNaming.test(scope)) ||
-              !regexpNpmNaming.test(pkgName)
-            ) {
+            if ((scope && !regexpNpmNaming.test(scope)) || !regexpNpmNaming.test(pkgName)) {
               return "Invalid Module Name";
             }
             return null;
@@ -114,9 +104,10 @@ export async function activate(context: vscode.ExtensionContext) {
               label: pkgName,
               description: `<${dist}> ${pkgInfo["dist-tags"][dist]}`,
             }));
-            const allVersions = Object.keys(pkgInfo.versions).sort(
-              sortByVersion,
-            ).map((version) => ({ label: pkgName, description: version }));
+            const allVersions = Object.keys(pkgInfo.versions).sort(sortByVersion).map((version) => ({
+              label: pkgName,
+              description: version,
+            }));
             const versions = version
               ? allVersions.filter((v) => v.description.startsWith(version))
               : distTags.concat(allVersions);
@@ -145,18 +136,14 @@ export async function activate(context: vscode.ExtensionContext) {
               const document = await workspace.openTextDocument(uri);
               const importMap = getImportMapFromHtml(document.getText());
               const pkgName = item.label;
-              const version = item.description.split(" ")[1] ??
-                item.description;
+              const version = item.description.split(" ")[1] ?? item.description;
               const imports = importMap.imports || (importMap.imports = {});
-              if (jsxRuntimes.includes(pkgName)) {
-                imports["@jsxImportSource"] =
-                  `https://esm.sh/${pkgName}@${version}`;
+              if (jsxRuntimes.includes(pkgName) && !imports["@jsxRuntime"]) {
+                imports["@jsxRuntime"] = `https://esm.sh/${pkgName}@${version}`;
               }
               imports[pkgName] = `https://esm.sh/${pkgName}@${version}`;
               imports[pkgName + "/"] = `https://esm.sh/${pkgName}@${version}/`;
-              const newHtml = new TextEncoder().encode(
-                insertImportMap(document.getText(), importMap),
-              );
+              const newHtml = new TextEncoder().encode(insertImportMap(document.getText(), importMap));
               workspace.fs.writeFile(uri, newHtml);
               tsApi.updateConfig({ importMap });
             });
@@ -170,9 +157,7 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 async function ensureTsApi() {
-  const tsExtension = vscode.extensions.getExtension(
-    "vscode.typescript-language-features",
-  );
+  const tsExtension = vscode.extensions.getExtension("vscode.typescript-language-features");
   if (!tsExtension) {
     throw new Error("vscode.typescript-language-features not found");
   }
@@ -181,13 +166,12 @@ async function ensureTsApi() {
   if (!api) {
     throw new Error("vscode.typescript-language-features api not found");
   }
-  const config: ProjectConfig = {};
+  let config: ProjectConfig = {};
   return {
     updateConfig: (c: ProjectConfig) => {
-      const old = JSON.stringify(config);
-      Object.assign(config, c);
-      if (old !== JSON.stringify(config)) {
-        api.configurePlugin("typescript-esmsh-plugin", config);
+      if (JSON.stringify(c) !== JSON.stringify(config)) {
+        api.configurePlugin("typescript-esmsh-plugin", c);
+        config = c;
       }
     },
   };
