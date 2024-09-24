@@ -1,7 +1,7 @@
 import { IText, parse, SyntaxKind, walk } from "html5parser";
 import type { ImportMap } from "./typescript-esmsh-plugin.ts";
 
-export const regexpNpmNaming = /^[a-zA-Z0-9][\w\.\-]*$/;
+export const regexpNpmNaming = /^[\w\.\-+!$]+$/;
 export const regexpBuildVersion = /^(v\d+|stable)$/;
 export const regexpSemVersion = /^v?\d+(\.\d+)*(-[\w\.]+)*$/;
 
