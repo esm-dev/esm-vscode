@@ -29,27 +29,21 @@
   },
   "scripts": {
     "build": "node build.mjs && vsce package",
-    "start": "DEBUG=true node build.mjs && rm -rf ~/.cache/esm.sh && code --extensionDevelopmentPath=$PWD"
+    "start": "DEBUG=true node build.mjs && rm -rf ~/.cache/esm.sh && code --extensionDevelopmentPath=$PWD ../esm-cli/templates/react"
   },
   "devDependencies": {
-    "@types/node": "20.16.6",
-    "@types/vscode": "1.93.0",
-    "@vscode/vsce": "3.1.0",
-    "esbuild": "0.24.0",
+    "@types/node": "20.14.2",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "2.27.0",
+    "esbuild": "0.21.5",
     "html5parser": "2.0.2",
-    "typescript": "5.6.2"
+    "typescript": "5.4.5"
   },
   "dependencies": {
     "typescript-esmsh-plugin": "./typescript-esmsh-plugin"
   },
-  "files": [
-    "dist/",
-    "typescript-esmsh-plugin/",
-    "icon.png",
-    "LICENSE"
-  ],
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.84.0"
   },
   "repository": {
     "type": "git",
