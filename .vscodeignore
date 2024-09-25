@@ -1,0 +1,7 @@
+src/
+typescript-esmsh-plugin/
+.dprint.json
+.gitignore
+build.mjs
+pnpm-lock.yaml
+tsconfig.json
