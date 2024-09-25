@@ -1,0 +1,67 @@
+{
+  "name": "The Grammar for <script type='importmap'></script>",
+  "scopeName": "source.json.embeddedimportmap",
+  "injectionSelector": "L:text.html -comment",
+  "patterns": [
+    {
+      "begin": "(<)(script)\\b(?=[^>]*type=(importmap|'importmap'|\"importmap\"))(?![^/>]*/>\\s*$)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.html"
+        },
+        "2": {
+          "name": "entity.name.tag.html"
+        }
+      },
+      "end": "(</)(script)(>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.html"
+        },
+        "2": {
+          "name": "entity.name.tag.html"
+        },
+        "3": {
+          "name": "punctuation.definition.tag.end.html"
+        }
+      },
+      "patterns": [
+        {
+          "name": "entity.other.attribute-name.html",
+          "match": "\\b([a-zA-Z\\-:_]+)"
+        },
+        {
+          "name": "punctuation.separator.key-value.html",
+          "match": "="
+        },
+        {
+          "name": "string.quoted.double.html",
+          "match": "(\"|').*?(\"|')"
+        },
+        {
+          "contentName": "meta.embedded.block.html.importmap",
+          "begin": "(>)",
+          "beginCaptures": {
+            "0": {
+              "name": "meta.tag.metadata.json.start.html"
+            },
+            "1": {
+              "name": "punctuation.definition.tag.end.html"
+            }
+          },
+          "end": "(?=</script>)",
+          "endCaptures": {
+            "0": {
+              "name": "meta.tag.metadata.json.end.html"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.json"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
