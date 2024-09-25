@@ -7,7 +7,7 @@ const build = (options) => {
     platform: "node",
     outdir: "dist",
     bundle: true,
-    minify: true,
+    minify: !process.env.DEBUG,
     logLevel: "info",
     external: ["vscode", "typescript"],
     loader: {
