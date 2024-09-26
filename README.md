@@ -33,3 +33,11 @@ export default function App() {
 ```
 
 > The `@jsxRuntime` is a special field for JSX runtime resloving. It's not required if you don't use it.
+
+## Snippets
+
+This extension provides some useful snippets for working with ESM modules.
+
+- `importmap`: Insert a new import map script tag.
+- `module`: Insert a new module script tag.
+- `module-with-src`: Insert a new module script tag with `src` attribute.
