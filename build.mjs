@@ -5,6 +5,7 @@ const build = (options) => {
     target: "node20",
     format: "cjs",
     platform: "node",
+    target: "es2022",
     outdir: "dist",
     bundle: true,
     minify: !process.env.DEBUG,
