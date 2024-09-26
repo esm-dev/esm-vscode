@@ -7,20 +7,30 @@ import { cache } from "./cache.ts";
 
 class Plugin implements ts.server.PluginModule {
   #typescript: typeof ts;
+  #importMap = createBlankImportMap();
+  #isBlankImportMap = true;
+  #httpRedirects = new Map<string, string>();
+  #typesMappings = new Map<string, string>();
+  #redirectImports: [modelUrl: string, node: ts.Node, url: string][] = [];
+  #httpImports = new Set<string>();
+  #badImports = new Set<string>();
+  #fetchPromises = new Map<string, Promise<void>>();
+
   #refreshDiagnostics = () => {};
   #debug = (s: string, ...args: any[]) => {};
 
-  private _importMap = createBlankImportMap();
-  private _isBlankImportMap = true;
-  private _httpRedirects = new Map<string, string>();
-  private _typesMappings = new Map<string, string>();
-  private _redirectImports: [modelUrl: string, node: ts.Node, url: string][] = [];
-  private _httpImports = new Set<string>();
-  private _badImports = new Set<string>();
-  private _fetchPromises = new Map<string, Promise<void>>();
-
   constructor(typescript: typeof ts) {
     this.#typescript = typescript;
+  }
+
+  get jsxImportSource(): string | undefined {
+    const { imports } = this.#importMap;
+    for (const specifier of ["@jsxRuntime", "@jsxImportSource", "react", "preact", "solid-js", "vue", "nano-jsx"]) {
+      if (specifier in imports) {
+        return imports[specifier];
+      }
+    }
+    return undefined;
   }
 
   create(info: ts.server.PluginCreateInfo): ts.LanguageService {
@@ -61,9 +71,9 @@ class Plugin implements ts.server.PluginModule {
     try {
       const indexHtmlPath = join(cwd, "index.html");
       if (existsSync(indexHtmlPath)) {
-        this._importMap = getImportMapFromHtml(readFileSync(indexHtmlPath, "utf-8"));
-        this._isBlankImportMap = isBlankImportMap(this._importMap);
-        this.#debug("load importmap from index.html", this._importMap);
+        this.#importMap = getImportMapFromHtml(readFileSync(indexHtmlPath, "utf-8"));
+        this.#isBlankImportMap = isBlankImportMap(this.#importMap);
+        this.#debug("load importmap from index.html", this.#importMap);
       }
     } catch (error) {
       // ignore
@@ -73,18 +83,18 @@ class Plugin implements ts.server.PluginModule {
     const getCompilationSettings = languageServiceHost.getCompilationSettings.bind(languageServiceHost);
     languageServiceHost.getCompilationSettings = () => {
       const settings: ts.CompilerOptions = getCompilationSettings();
-      if (!this._isBlankImportMap) {
-        const jsxImportSource = this._importMap.imports["@jsxRuntime"] ?? this._importMap.imports["@jsxImportSource"];
+      if (!this.#isBlankImportMap) {
+        const jsxImportSource = this.jsxImportSource;
         if (jsxImportSource) {
-          settings.jsx = 4; // TS.JsxEmit.React
+          settings.jsx = this.#typescript.JsxEmit.ReactJSX;
           settings.jsxImportSource = jsxImportSource;
         }
-        settings.target ??= 9; // TS.ScriptTarget.ES2022
+        settings.target ??= this.#typescript.ScriptTarget.ESNext;
         settings.allowImportingTsExtensions = true;
         settings.skipLibCheck = true;
         settings.noEmit = true;
-        settings.moduleResolution = 100; // TS.ModuleResolutionKind.Bundler
-        settings.moduleDetection = 3; // TS.ModuleDetectionKind.Force
+        settings.moduleResolution = this.#typescript.ModuleResolutionKind.Bundler;
+        settings.moduleDetection = this.#typescript.ModuleDetectionKind.Force;
         settings.isolatedModules = true;
       }
       return settings;
@@ -95,7 +105,7 @@ class Plugin implements ts.server.PluginModule {
     if (resolveModuleNameLiterals) {
       languageServiceHost.resolveModuleNameLiterals = (literals, containingFile: string, ...rest) => {
         const resolvedModules = resolveModuleNameLiterals(literals, containingFile, ...rest);
-        this._redirectImports = this._redirectImports.filter(([modelUrl]) => modelUrl !== containingFile);
+        this.#redirectImports = this.#redirectImports.filter(([modelUrl]) => modelUrl !== containingFile);
         return resolvedModules.map((res: ts.ResolvedModuleWithFailedLookupLocations, i: number): typeof res => {
           if (res.resolvedModule) {
             return res;
@@ -127,17 +137,17 @@ class Plugin implements ts.server.PluginModule {
   }
 
   onConfigurationChanged(data: { indexHtml: string }): void {
-    this._importMap = getImportMapFromHtml(data.indexHtml);
-    this._isBlankImportMap = isBlankImportMap(this._importMap);
+    this.#importMap = getImportMapFromHtml(data.indexHtml);
+    this.#isBlankImportMap = isBlankImportMap(this.#importMap);
     this.#refreshDiagnostics();
-    this.#debug("onConfigurationChanged", this._importMap);
+    this.#debug("onConfigurationChanged", this.#importMap);
   }
 
   resolveModuleName(literal: ts.StringLiteralLike, containingFile: string): ts.ResolvedModuleFull | undefined {
     let specifier = literal.text;
     let importMapResolved = false;
-    if (!this._isBlankImportMap) {
-      const [url, resolved] = resolve(this._importMap, specifier, containingFile);
+    if (!this.#isBlankImportMap) {
+      const [url, resolved] = resolve(this.#importMap, specifier, containingFile);
       importMapResolved = resolved;
       if (importMapResolved) {
         specifier = url;
@@ -162,24 +172,33 @@ class Plugin implements ts.server.PluginModule {
     }
     const moduleHref = moduleUrl.href;
     if (moduleUrl.protocol === "file:") {
+      if (toUrl(containingFile).startsWith(toUrl(cache.storeDir))) {
+        const url = new URL(toUrl(containingFile).substring(toUrl(cache.storeDir).length), "https://esm.sh/");
+        if (url.pathname.startsWith("/-/")) {
+          const [host, ...rest] = url.pathname.slice(3).split("/");
+          url.host = host;
+          url.pathname = "/" + rest.join("/");
+        }
+        return this.resolveModuleName(literal, url.href);
+      }
       return undefined;
     }
-    if (this._badImports.has(moduleHref)) {
+    if (this.#badImports.has(moduleHref)) {
       return undefined;
     }
-    if (!importMapResolved && this._httpRedirects.has(moduleHref)) {
-      const redirectUrl = this._httpRedirects.get(moduleHref)!;
-      this._redirectImports.push([containingFile, literal, redirectUrl]);
+    if (!importMapResolved && this.#httpRedirects.has(moduleHref)) {
+      const redirectUrl = this.#httpRedirects.get(moduleHref)!;
+      this.#redirectImports.push([containingFile, literal, redirectUrl]);
     }
-    if (this._typesMappings.has(moduleHref)) {
-      const resolvedFileName = this._typesMappings.get(moduleHref)!;
+    if (this.#typesMappings.has(moduleHref)) {
+      const resolvedFileName = this.#typesMappings.get(moduleHref)!;
       return {
         resolvedFileName,
         resolvedUsingTsExtension: true,
         extension: getScriptExtension(resolvedFileName) ?? ".d.ts",
       };
     }
-    if (this._httpImports.has(moduleHref)) {
+    if (this.#httpImports.has(moduleHref)) {
       return { resolvedFileName: moduleHref, extension: ".js" };
     }
     const res = cache.head(moduleUrl);
@@ -189,8 +208,8 @@ class Plugin implements ts.server.PluginModule {
         const dtsUrl = new URL(dts, moduleUrl);
         const dtsRes = cache.head(dtsUrl);
         if (dtsRes) {
-          const resolvedFileName = join(cache.storeDir, dtsUrl.pathname);
-          this._typesMappings.set(moduleHref, resolvedFileName);
+          const resolvedFileName = cache.getStorePath(dtsUrl);
+          this.#typesMappings.set(moduleHref, resolvedFileName);
           return {
             resolvedFileName,
             resolvedUsingTsExtension: true,
@@ -198,60 +217,58 @@ class Plugin implements ts.server.PluginModule {
           };
         }
       } else if (/\.d\.(c|m)?ts$/.test(moduleUrl.pathname)) {
-        const resolvedFileName = join(cache.storeDir, moduleUrl.pathname);
-        this._typesMappings.set(moduleHref, resolvedFileName);
+        const resolvedFileName = cache.getStorePath(moduleUrl);
+        this.#typesMappings.set(moduleHref, resolvedFileName);
         return {
           resolvedFileName,
           resolvedUsingTsExtension: true,
           extension: getScriptExtension(resolvedFileName) ?? ".d.ts",
         };
       }
-      this._httpImports.add(moduleHref);
+      this.#httpImports.add(moduleHref);
       return { resolvedFileName: moduleHref, extension: ".js" };
     }
-    if (!this._fetchPromises.has(moduleHref)) {
-      const autoFetch = importMapResolved || isHttpUrl(containingFile) || this.isJsxImportUrl(moduleHref)
-        || isWellKnownCDNURL(moduleUrl) || containingFile.startsWith(cache.storeDir);
+    if (!this.#fetchPromises.has(moduleHref)) {
+      const autoFetch = importMapResolved
+        || isHttpUrl(containingFile)
+        || toUrl(containingFile).startsWith(toUrl(cache.storeDir))
+        || this.isJsxImportUrl(moduleHref)
+        || isWellKnownCDNURL(moduleUrl);
       const promise = autoFetch ? cache.fetch(moduleUrl) : cache.query(moduleUrl);
-      this._fetchPromises.set(
+      this.#fetchPromises.set(
         moduleHref,
         promise.then(async (res) => {
           // if do not find the module in the cache
           if (!res) {
-            this._httpImports.add(moduleHref);
+            this.#httpImports.add(moduleHref);
             return;
           }
-
-          // we do not need the body of the response
-          res.body?.cancel();
-
           if (res.ok) {
             const dts = res.headers.get("x-typescript-types");
             if (res.redirected) {
-              this._httpRedirects.set(moduleHref, res.url);
+              this.#httpRedirects.set(moduleHref, res.url);
             } else if (dts) {
               const dtsUrl = new URL(dts, moduleUrl);
               const dtsRes = await cache.fetch(dtsUrl);
-              dtsRes.body?.cancel();
               if (dtsRes.ok) {
-                this._typesMappings.set(moduleHref, join(cache.storeDir, dtsUrl.pathname));
+                this.#typesMappings.set(moduleHref, cache.getStorePath(dtsUrl));
               } else {
                 // bad response
-                this._badImports.add(moduleHref);
+                this.#badImports.add(moduleHref);
               }
             } else if (/\.d\.(c|m)?ts$/.test(moduleUrl.pathname)) {
-              this._typesMappings.set(moduleHref, join(cache.storeDir, moduleUrl.pathname));
+              this.#typesMappings.set(moduleHref, cache.getStorePath(moduleUrl));
             } else {
-              this._httpImports.add(moduleHref);
+              this.#httpImports.add(moduleHref);
             }
           } else {
             // bad response
-            this._badImports.add(moduleHref);
+            this.#badImports.add(moduleHref);
           }
         }).catch((error) => {
           this.#debug("[error] fetch module", error.stack ?? error);
         }).finally(() => {
-          this._fetchPromises.delete(moduleHref);
+          this.#fetchPromises.delete(moduleHref);
           this.#refreshDiagnostics();
         }),
       );
@@ -261,9 +278,9 @@ class Plugin implements ts.server.PluginModule {
   }
 
   isJsxImportUrl(url: string): boolean {
-    const jsxImportUrl = this._importMap.imports["@jsxRuntime"] ?? this._importMap.imports["@jsxImportSource"];
-    if (jsxImportUrl) {
-      return url === jsxImportUrl + "/jsx-runtime" || url === jsxImportUrl + "/jsx-dev-runtime";
+    const jsxImportSource = this.jsxImportSource;
+    if (jsxImportSource) {
+      return url === jsxImportSource + "/jsx-runtime" || url === jsxImportSource + "/jsx-dev-runtime";
     }
     return false;
   }
@@ -334,6 +351,10 @@ const regexpPackagePath = /\/((@|gh\/|pr\/|jsr\/@)[\w\.\-]+\/)?[\w\.\-]+@(\d+(\.
 function isWellKnownCDNURL(url: URL): boolean {
   const { pathname } = url;
   return regexpPackagePath.test(pathname);
+}
+
+function toUrl(path: string): string {
+  return new URL(path, "file:///").href;
 }
 
 function debunce<T extends (...args: any[]) => unknown>(fn: T, timeout: number): (...args: Parameters<T>) => void {

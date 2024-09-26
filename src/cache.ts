@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { Readable, Writable } from "node:stream";
+import { Writable } from "node:stream";
 
 interface CacheMeta {
   url: string;
@@ -13,21 +13,26 @@ interface CacheMeta {
 
 /** A cache that stores responses in IndexedDB. */
 class Cache {
-  private _cacheRootDir: string;
+  private _storeDir: string;
   private _metaDir: string;
 
   constructor(cacheName = "esm.sh") {
     const home = homedir();
 
-    this._cacheRootDir = join(home, ".cache/" + cacheName);
-    this._metaDir = join(this._cacheRootDir, "meta");
+    this._storeDir = join(home, ".cache/" + cacheName);
+    this._metaDir = join(this._storeDir, "meta");
 
     // ensure the cache directory exists
     ensureDir(this._metaDir);
   }
 
   get storeDir() {
-    return this._cacheRootDir;
+    return this._storeDir;
+  }
+
+  getStorePath(url: URL) {
+    const savePath = (url.host === "esm.sh" || url.host === "cdn.esm.sh" ? "" : "/-/" + url.host) + url.pathname;
+    return join(this._storeDir, savePath);
   }
 
   async fetch(url: URL): Promise<Response> {
@@ -35,14 +40,14 @@ class Cache {
     if (cachedResponse) {
       return cachedResponse;
     }
-    const res = await fetch(url);
+    const res = await fetch(url, { redirect: "manual" });
     const urlHash = createHash("sha256").update(url.href).digest("hex");
     if (res.status === 302 || res.status === 301) {
       const meta: CacheMeta = { url: url.href, code: res.status, headers: [["location", res.url]], ctime: Date.now() };
       writeFileSync(join(this._metaDir, urlHash + ".json"), JSON.stringify(meta), "utf8");
       return res;
     }
-    if (!res.ok || !res.body) {
+    if (!res.ok) {
       return res;
     }
     const cc = res.headers.get("cache-control");
@@ -52,12 +57,15 @@ class Cache {
     }
     const headers = [...res.headers.entries()].filter(([k]) => ["cache-control", "content-type", "x-typescript-types"].includes(k));
     const meta: CacheMeta = { url: res.url, code: 200, headers, ctime: Date.now() };
-    const [body, bodyCopy] = res.body.tee();
-    const saveName = url.search ? urlHash.slice(0, 2) + urlHash : url.pathname;
     writeFileSync(join(this._metaDir, urlHash + ".json"), JSON.stringify(meta), "utf8");
-    ensureDir(dirname(join(this._cacheRootDir, saveName)));
-    await bodyCopy.pipeTo(Writable.toWeb(createWriteStream(join(this._cacheRootDir, saveName))));
-    const resp = new Response(body, { headers });
+    if (url.pathname.endsWith(".d.ts") || url.pathname.endsWith(".d.mts") || url.pathname.endsWith(".d.cts")) {
+      const storePath = this.getStorePath(url);
+      ensureDir(dirname(storePath));
+      await res.body!.pipeTo(Writable.toWeb(createWriteStream(storePath)));
+    } else {
+      res.body?.cancel();
+    }
+    const resp = new Response(null, { headers });
     Object.defineProperty(resp, "url", { value: res.url });
     return resp;
   }
@@ -84,22 +92,11 @@ class Cache {
     }
     const cc = headers.get("cache-control");
     const maxAge = cc?.match(/max-age=(\d+)/)?.[1];
-    if (!maxAge || parseInt(maxAge) < 0) {
+    if (!maxAge || parseInt(maxAge) < 0 || meta.ctime + parseInt(maxAge) * 1000 < Date.now()) {
       rmSync(metaPath);
       return null;
     }
-    const saveName = url.search ? urlHash.slice(0, 2) + urlHash : url.pathname;
-    const savePath = join(this._cacheRootDir, saveName);
-    const hasContent = existsSync(savePath);
-    if (!hasContent || meta.ctime + parseInt(maxAge) * 1000 < Date.now()) {
-      rmSync(metaPath);
-      if (hasContent) {
-        rmSync(savePath);
-      }
-      return null;
-    }
-    const body = Readable.toWeb(createReadStream(savePath)) as ReadableStream;
-    const res = new Response(body, { headers });
+    const res = new Response(null, { headers });
     Object.defineProperty(res, "url", { value: meta.url });
     return res;
   }

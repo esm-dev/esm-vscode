@@ -83,7 +83,7 @@ export function resolve(importMap: ImportMap, specifier: string, containingFile:
   if (sameOriginScopes.length > 0) {
     for (const [scopePathname, scopeImports] of sameOriginScopes) {
       if (pathname.startsWith(scopePathname)) {
-        const match = matchImports(specifier, scopeImports);
+        const match = matchImportUrl(specifier, scopeImports);
         if (match) {
           return [match, true];
         }
@@ -91,7 +91,7 @@ export function resolve(importMap: ImportMap, specifier: string, containingFile:
     }
   }
   if (origin === new URL($baseURL).origin) {
-    const match = matchImports(specifier, imports);
+    const match = matchImportUrl(specifier, imports);
     if (match) {
       return [match, true];
     }
@@ -99,12 +99,16 @@ export function resolve(importMap: ImportMap, specifier: string, containingFile:
   return [specifier, false];
 }
 
-function matchImports(specifier: string, imports: ImportMap["imports"]) {
+function matchImportUrl(specifier: string, imports: ImportMap["imports"]): string | null {
   if (specifier in imports) {
     return imports[specifier];
   }
   for (const [k, v] of Object.entries(imports)) {
-    if (k.endsWith("/") && specifier.startsWith(k)) {
+    if (k.endsWith("/")) {
+      if (specifier.startsWith(k)) {
+        return v + specifier.slice(k.length);
+      }
+    } else if (specifier.startsWith(k + "/")) {
       return v + specifier.slice(k.length);
     }
   }
