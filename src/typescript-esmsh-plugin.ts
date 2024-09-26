@@ -182,6 +182,33 @@ class Plugin implements ts.server.PluginModule {
     if (this._httpImports.has(moduleHref)) {
       return { resolvedFileName: moduleHref, extension: ".js" };
     }
+    const res = cache.head(moduleUrl);
+    if (res) {
+      const dts = res.headers.get("x-typescript-types");
+      if (dts) {
+        const dtsUrl = new URL(dts, moduleUrl);
+        const dtsRes = cache.head(dtsUrl);
+        if (dtsRes) {
+          const resolvedFileName = join(cache.storeDir, dtsUrl.pathname);
+          this._typesMappings.set(moduleHref, resolvedFileName);
+          return {
+            resolvedFileName,
+            resolvedUsingTsExtension: true,
+            extension: getScriptExtension(resolvedFileName) ?? ".d.ts",
+          };
+        }
+      } else if (/\.d\.(c|m)?ts$/.test(moduleUrl.pathname)) {
+        const resolvedFileName = join(cache.storeDir, moduleUrl.pathname);
+        this._typesMappings.set(moduleHref, resolvedFileName);
+        return {
+          resolvedFileName,
+          resolvedUsingTsExtension: true,
+          extension: getScriptExtension(resolvedFileName) ?? ".d.ts",
+        };
+      }
+      this._httpImports.add(moduleHref);
+      return { resolvedFileName: moduleHref, extension: ".js" };
+    }
     if (!this._fetchPromises.has(moduleHref)) {
       const autoFetch = importMapResolved || isHttpUrl(containingFile) || this.isJsxImportUrl(moduleHref)
         || isWellKnownCDNURL(moduleUrl) || containingFile.startsWith(cache.storeDir);
@@ -212,13 +239,10 @@ class Plugin implements ts.server.PluginModule {
                 // bad response
                 this._badImports.add(moduleHref);
               }
-            } else if (/\.(c|m)?tsx?$/.test(moduleUrl.pathname)) {
+            } else if (/\.d\.(c|m)?ts$/.test(moduleUrl.pathname)) {
               this._typesMappings.set(moduleHref, join(cache.storeDir, moduleUrl.pathname));
-            } else if (/\.(c|m)?jsx?$/.test(moduleUrl.pathname) || res.headers.get("content-type")?.includes("javascript")) {
-              this._httpImports.add(moduleHref);
             } else {
-              // not a javascript module nor a typescript module
-              this._badImports.add(moduleHref);
+              this._httpImports.add(moduleHref);
             }
           } else {
             // bad response

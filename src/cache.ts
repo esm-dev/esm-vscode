@@ -68,7 +68,13 @@ class Cache {
     if (!existsSync(metaPath)) {
       return null;
     }
-    const meta = JSON.parse(readFileSync(metaPath, "utf8")) as CacheMeta;
+    let meta: CacheMeta;
+    try {
+      meta = JSON.parse(readFileSync(metaPath, "utf8")) as CacheMeta;
+    } catch {
+      rmSync(metaPath);
+      return null;
+    }
     const headers = new Headers(meta.headers);
     if (headers.get("location")) {
       const res = new Response(null, { status: meta.code, headers });
@@ -96,6 +102,22 @@ class Cache {
     const res = new Response(body, { headers });
     Object.defineProperty(res, "url", { value: meta.url });
     return res;
+  }
+
+  head(url: URL): Response | null {
+    const urlHash = createHash("sha256").update(url.href).digest("hex");
+    const metaPath = join(this._metaDir, urlHash + ".json");
+    if (!existsSync(metaPath)) {
+      return null;
+    }
+    let meta: CacheMeta;
+    try {
+      meta = JSON.parse(readFileSync(metaPath, "utf8")) as CacheMeta;
+      return new Response(null, { status: meta.code, headers: meta.headers });
+    } catch {
+      rmSync(metaPath);
+      return null;
+    }
   }
 }
 
