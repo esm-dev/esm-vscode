@@ -14,7 +14,6 @@ This extension respects `importmap` script tag in the `index.html` of your proje
 <script type="importmap">
   {
     "imports": {
-      "@jsxRuntime": "https://esm.sh/react@18.3.1",
       "react": "https://esm.sh/react@18.3.1"
     }
   }
@@ -32,11 +31,33 @@ export default function App() {
 }
 ```
 
-> The `@jsxRuntime` is a special field for JSX runtime resloving. It's not required if you don't use it.
+## JSX Import Source
+
+By default, the extension smartly detects the JSX import source that is defined in the `importmap` script tag. Supported JSX runtime includes:
+
+- react
+- preact
+- vue
+- solid-js
+- nano-jsx
+
+You can also specify the JSX runtime by adding a `@jsxRuntime` import in the import map.
+
+```html
+<!-- index.html -->
+
+<script type="importmap">
+  {
+    "imports": {
+      "@jsxRuntime": "https://esm.sh/react@18.3.1"
+    }
+  }
+</script>
+```
 
 ## Snippets
 
-This extension provides some useful snippets for working with ESM modules.
+This extension provides some useful snippets for working with ESM modules in HTML files.
 
 - `importmap`: Insert a new import map script tag.
 - `module`: Insert a new module script tag.
