@@ -80,6 +80,8 @@ class Plugin implements ts.server.PluginModule {
     this.#getStorePath = (url: URL) => {
       const storePath = cache.getStorePath(url);
       setTimeout(() => {
+        // resolve types reference directives
+        // e.g. `/// <reference types="./common.d.ts" />`
         languageService.getProgram()?.getSourceFile(storePath)?.referencedFiles.forEach((ref) => {
           const refUrl = new URL(ref.fileName, url);
           const refHref = refUrl.href;
@@ -299,7 +301,6 @@ class Plugin implements ts.server.PluginModule {
                 const dtsUrl = new URL(dtsRes.url);
                 this.#typesMappings.set(moduleHref, this.#getStorePath(dtsUrl));
               } else {
-                // bad response
                 this.#badImports.add(moduleHref);
               }
             } else if (/\.d\.(c|m)?ts$/.test(moduleUrl.pathname)) {
@@ -308,7 +309,6 @@ class Plugin implements ts.server.PluginModule {
               this.#httpImports.add(moduleHref);
             }
           } else {
-            // bad response
             this.#badImports.add(moduleHref);
           }
         }).catch((error) => {
@@ -319,7 +319,6 @@ class Plugin implements ts.server.PluginModule {
         }),
       );
     }
-    // resolving modules...
     return { resolvedFileName: moduleHref, extension: ".js" };
   }
 
