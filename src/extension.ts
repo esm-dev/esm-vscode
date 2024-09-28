@@ -15,7 +15,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  function debunce<T extends (...args: any[]) => unknown>(fn: T, timeout: number): (...args: Parameters<T>) => void {
+  function debunce<T extends (...args: any[]) => unknown>(fn: T, ms: number): (...args: Parameters<T>) => void {
     let timer: number | undefined;
     return ((...args: any[]) => {
       if (timer) {
@@ -23,7 +23,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       timer = setTimeout(() => {
         fn(...args);
-      }, timeout) as unknown as number;
+      }, ms) as unknown as number;
     });
   }
 }
