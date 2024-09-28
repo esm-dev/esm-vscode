@@ -2,7 +2,7 @@
   "name": "esm-vscode",
   "version": "0.0.7",
   "displayName": "esm.sh",
-  "description": "Build modern web applications with esm.sh",
+  "description": "A Visual Studio Code extension loads types(.d.ts) for esm.sh imports.",
   "publisher": "ije",
   "keywords": [
     "esm.sh",

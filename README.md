@@ -1,8 +1,10 @@
 ![Figure #1](https://esm.sh/embed/assets/sceenshot-deno-types.png)
 
-# esm.sh for VS Code
+# esm.sh - Visual Studio Code Extension
 
-A VS Code extension loads types from [esm.sh](https://esm.sh) CDN for http imports. No `npm install` required. (Types in `node_modules` will be used first, if exists)
+[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/ije.esm-vscode.svg?color=c19999&amp;label=Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=ije.esm-vscode)
+
+A Visual Studio Code extension loads types(.d.ts) for [esm.sh](https://esm.sh) imports. No `npm install` required. (Types in `node_modules` will be used first, if exists)
 
 ## Using Import Maps
 
@@ -41,7 +43,7 @@ By default, the extension smartly detects the JSX import source that is defined 
 - solid-js
 - nano-jsx
 
-You can also specify the JSX runtime by adding a `@jsxRuntime` import in the import map.
+You can also specify the JSX runtime by adding the `@jsxRuntime` import in the importmap script tag.
 
 ```html
 <!-- index.html -->
