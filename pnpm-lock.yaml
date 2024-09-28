@@ -13,8 +13,8 @@ importers:
         version: link:typescript-esmsh-plugin
     devDependencies:
       '@types/node':
-        specifier: 20.16.7
-        version: 20.16.7
+        specifier: 20.16.10
+        version: 20.16.10
       '@types/vscode':
         specifier: 1.90.0
         version: 1.90.0
@@ -225,8 +225,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@types/node@20.16.7':
-    resolution: {integrity: sha512-QkDQjAY3gkvJNcZOWwzy3BN34RweT0OQ9zJyvLCU0kSK22dO2QYh/NHGfbEAYylPYzRB1/iXcojS79wOg5gFSw==}
+  '@types/node@20.16.10':
+    resolution: {integrity: sha512-vQUKgWTjEIRFCvK6CyriPH3MZYiYlNy0fKiEYHWbcoWLEgs4opurGGKlebrTLqdSMIbXImH6XExNiIyNUv3WpA==}
 
   '@types/vscode@1.90.0':
     resolution: {integrity: sha512-oT+ZJL7qHS9Z8bs0+WKf/kQ27qWYR3trsXpq46YDjFqBsMLG4ygGGjPaJ2tyrH0wJzjOEmDyg9PDJBBhWg9pkQ==}
@@ -961,7 +961,7 @@ snapshots:
   '@esbuild/win32-x64@0.24.0':
     optional: true
 
-  '@types/node@20.16.7':
+  '@types/node@20.16.10':
     dependencies:
       undici-types: 6.19.8
 

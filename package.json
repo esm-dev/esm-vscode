@@ -1,15 +1,15 @@
 {
   "name": "esm-vscode",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "displayName": "esm.sh",
-  "description": "Build web applications with import maps",
+  "description": "Build modern web applications with esm.sh",
   "publisher": "ije",
   "keywords": [
     "esm.sh",
     "no-build",
+    "no build",
     "importmap",
     "import-map",
-    "import-maps",
     "import map",
     "import maps",
     "html"
@@ -40,7 +40,7 @@
     "snippets": [
       {
         "language": "html",
-        "path": "./snippets/html-importmap.json"
+        "path": "./snippets/html.json"
       }
     ],
     "typescriptServerPlugins": [
@@ -52,10 +52,11 @@
   },
   "scripts": {
     "build": "node build.mjs && vsce package",
+    "debug-build": "DEBUG=true node build.mjs && vsce package",
     "start": "DEBUG=true node build.mjs && code --extensionDevelopmentPath=$PWD"
   },
   "devDependencies": {
-    "@types/node": "20.16.7",
+    "@types/node": "20.16.10",
     "@types/vscode": "1.90.0",
     "@vscode/vsce": "2.32.0",
     "esbuild": "0.24.0",
