@@ -1,31 +1,31 @@
 {
-	"html-script-importmap": {
-		"prefix": "importmap",
-		"body": [
-			"<script type=\"importmap\">",
-			"  {",
-			"    \"imports\": {",
-			"      \"${1:name}\": \"https://esm.sh/$1@${2:version}\"",
-			"    }",
-			"  }",
-			"</script>"
-		],
-		"description": "Inserts an import maps script tag"
-	},
-	"html-script-module": {
-		"prefix": "module",
-		"body": [
-			"<script type=\"module\">",
-			"  $1",
-			"</script>"
-		],
-		"description": "Inserts an ES module script tag"
-	},
-	"html-script-module-with-src": {
-		"prefix": "module-with-src",
-		"body": [
-			"<script type=\"module\" src=\"$1\"></script>"
-		],
-		"description": "Inserts an ES module script tag with src attribute"
-	}
+  "html-script-importmap": {
+    "prefix": "importmap",
+    "body": [
+      "<script type=\"importmap\">",
+      "  {",
+      "    \"imports\": {",
+      "      \"${1:name}\": \"https://esm.sh/$1@${2:version}\"",
+      "    }",
+      "  }",
+      "</script>"
+    ],
+    "description": "Inserts an import maps script tag"
+  },
+  "html-script-module": {
+    "prefix": "module",
+    "body": [
+      "<script type=\"module\">",
+      "  $1",
+      "</script>"
+    ],
+    "description": "Inserts an ES module script tag"
+  },
+  "html-script-module-with-src": {
+    "prefix": "module-with-src",
+    "body": [
+      "<script type=\"module\" src=\"$1\"></script>"
+    ],
+    "description": "Inserts an ES module script tag with src attribute"
+  }
 }
