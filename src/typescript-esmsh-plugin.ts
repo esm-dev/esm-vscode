@@ -5,6 +5,8 @@ import { IText, parse, SyntaxKind, walk } from "html5parser";
 import { createBlankImportMap, type ImportMap, importMapFrom, isBlankImportMap, resolve } from "./import-map.ts";
 import { cache } from "./cache.ts";
 
+let console: Pick<Console, "debug" | "log" | "info" | "warn" | "error"> = globalThis.console;
+
 class Plugin implements ts.server.PluginModule {
   #typescript: typeof ts;
   #importMap = createBlankImportMap();
@@ -15,7 +17,6 @@ class Plugin implements ts.server.PluginModule {
   #badImports = new Set<string>();
   #fetchPromises = new Map<string, Promise<void>>();
 
-  #getStorePath = (url: URL) => "";
   #updateGraph = () => {};
 
   constructor(typescript: typeof ts) {
@@ -35,32 +36,37 @@ class Plugin implements ts.server.PluginModule {
   create(info: ts.server.PluginCreateInfo): ts.LanguageService {
     const { languageService, languageServiceHost, project } = info;
     const cwd = project.getCurrentDirectory();
+    const stringify = (a: unknown) => typeof a === "object" ? (a instanceof Error ? a.stack ?? a.message : JSON.stringify(a)) : a;
 
     // @ts-ignore DEBUG is defined at build time
     if (DEBUG) {
       const logFilepath = join(cwd, "typescript-esmsh-plugin.log");
       const log = (...args: unknown[]) => {
         const date = new Date().toISOString();
-        const message = [date, ...args.map((a) => typeof a === "object" ? JSON.stringify(a) : a)];
+        const message = [date, ...args.map(stringify)];
         writeFileSync(logFilepath, message.join(" ") + "\n", { encoding: "utf8", flag: "a+", mode: 0o666 });
       };
       const createLogger = (level: string) => (...args: unknown[]) => log("[" + level + "]", ...args);
-      console.log = log;
-      console.debug = createLogger("debug");
-      console.info = createLogger("info");
-      console.warn = createLogger("warn");
-      console.error = createLogger("error");
+      console = {
+        log,
+        debug: createLogger("debug"),
+        info: createLogger("info"),
+        warn: createLogger("warn"),
+        error: createLogger("error"),
+      };
     } else {
       const log = (...args: unknown[]) => {
-        const message = ["[esm.sh]", ...args.map((a) => typeof a === "object" ? JSON.stringify(a) : a)];
+        const message = ["[esm.sh]", ...args.map(stringify)];
         project.projectService.logger.info(message.join(" "));
       };
       const createLogger = (level: string) => (...args: unknown[]) => log("[" + level + "]", ...args);
-      console.log = log;
-      console.debug = () => {};
-      console.info = createLogger("info");
-      console.warn = createLogger("warn");
-      console.error = createLogger("error");
+      console = {
+        log,
+        debug: () => {},
+        info: createLogger("info"),
+        warn: createLogger("warn"),
+        error: createLogger("error"),
+      };
     }
 
     this.#updateGraph = debunce(() => {
@@ -75,38 +81,7 @@ class Plugin implements ts.server.PluginModule {
         // in case TS changes it's internal APIs, we fallback to force reload all projects
         projectService.reloadProjects();
       }
-    }, 100);
-
-    this.#getStorePath = (url: URL) => {
-      const storePath = cache.getStorePath(url);
-      setTimeout(() => {
-        // resolve types reference directives
-        // e.g. `/// <reference types="./common.d.ts" />`
-        languageService.getProgram()?.getSourceFile(storePath)?.referencedFiles.forEach((ref) => {
-          const refUrl = new URL(ref.fileName, url);
-          const refHref = refUrl.href;
-          if (/\.d\.(m|c)?ts$/.test(refHref) && !this.#fetchPromises.has(refHref) && !this.#badImports.has(refHref)) {
-            this.#fetchPromises.set(
-              refHref,
-              cache.fetch(refUrl).then(async res => {
-                if (res.ok) {
-                  if (res.headers.get("cache-status") !== "HIT") {
-                    this.#updateGraph();
-                  }
-                } else {
-                  this.#badImports.add(refHref);
-                }
-              }).catch(err => {
-                console.warn(`Failed to fetch types: ${refHref}`, err);
-              }).finally(() => {
-                this.#fetchPromises.delete(refHref);
-              }),
-            );
-          }
-        });
-      }, 200);
-      return storePath;
-    };
+    }, 500);
 
     // load import map from index.html if exists
     try {
@@ -149,6 +124,32 @@ class Plugin implements ts.server.PluginModule {
     if (resolveModuleNameLiterals) {
       languageServiceHost.resolveModuleNameLiterals = (literals, containingFile: string, ...rest) => {
         const resolvedModules = resolveModuleNameLiterals(literals, containingFile, ...rest);
+        setTimeout(() => {
+          // @ts-ignore `missingFilesMap` is a private property of `project`
+          const missingFiles = [...project.missingFilesMap.keys()].filter(filename =>
+            filename.startsWith(cache.storeDir) || filename.startsWith(cache.storeDir.toLowerCase())
+          );
+          missingFiles.forEach(filename => {
+            const refUrl = cache.restoreUrl(filename);
+            const refHref = refUrl.href;
+            if (/\.d\.(m|c)?ts$/.test(refHref) && !this.#badImports.has(refHref) && !this.#fetchPromises.has(refHref)) {
+              this.#fetchPromises.set(
+                refHref,
+                cache.fetch(refUrl).then(async res => {
+                  if (!res.ok) {
+                    this.#badImports.add(refHref);
+                  } else {
+                    console.debug("fetched missing types", refHref);
+                  }
+                }).catch(err => {
+                  console.warn(`Failed to fetch missing types(${refHref}):`, err);
+                }).finally(() => {
+                  this.#fetchPromises.delete(refHref);
+                }),
+              );
+            }
+          });
+        });
         return resolvedModules.map((res: ts.ResolvedModuleWithFailedLookupLocations, i: number): typeof res => {
           if (res.resolvedModule) {
             return res;
@@ -161,7 +162,7 @@ class Plugin implements ts.server.PluginModule {
             }
             return { resolvedModule };
           } catch (error) {
-            console.error("resolveModuleNameLiterals", error.stack ?? error);
+            console.error("resolveModuleNameLiterals", error);
             return { resolvedModule: undefined };
           }
         });
@@ -257,7 +258,7 @@ class Plugin implements ts.server.PluginModule {
       } else if (dts) {
         let dtsRes = cache.query(new URL(dts, moduleUrl));
         if (dtsRes) {
-          const resolvedFileName = this.#getStorePath(new URL(dtsRes.url));
+          const resolvedFileName = cache.getStorePath(new URL(dtsRes.url));
           this.#typesMappings.set(moduleHref, resolvedFileName);
           return {
             resolvedFileName,
@@ -266,7 +267,7 @@ class Plugin implements ts.server.PluginModule {
           };
         }
       } else if (/\.d\.(c|m)?ts$/.test(moduleUrl.pathname)) {
-        const resolvedFileName = this.#getStorePath(moduleUrl);
+        const resolvedFileName = cache.getStorePath(moduleUrl);
         this.#typesMappings.set(moduleHref, resolvedFileName);
         return {
           resolvedFileName,
@@ -299,12 +300,13 @@ class Plugin implements ts.server.PluginModule {
               let dtsRes = await cache.fetch(new URL(dts, res.url));
               if (dtsRes.ok) {
                 const dtsUrl = new URL(dtsRes.url);
-                this.#typesMappings.set(moduleHref, this.#getStorePath(dtsUrl));
+                this.#typesMappings.set(moduleHref, cache.getStorePath(dtsUrl));
+                console.debug("found types", moduleHref, "->", dtsUrl.href);
               } else {
                 this.#badImports.add(moduleHref);
               }
             } else if (/\.d\.(c|m)?ts$/.test(moduleUrl.pathname)) {
-              this.#typesMappings.set(moduleHref, this.#getStorePath(moduleUrl));
+              this.#typesMappings.set(moduleHref, cache.getStorePath(moduleUrl));
             } else {
               this.#httpImports.add(moduleHref);
             }
@@ -312,7 +314,7 @@ class Plugin implements ts.server.PluginModule {
             this.#badImports.add(moduleHref);
           }
         }).catch((error) => {
-          console.error("fetch module " + moduleUrl, error.stack ?? error);
+          console.error("fetch module " + moduleUrl, error);
         }).finally(() => {
           this.#fetchPromises.delete(moduleHref);
           this.#updateGraph();

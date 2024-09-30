@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { Writable } from "node:stream";
@@ -18,7 +18,7 @@ class Cache {
   constructor(cacheName = "esm.sh") {
     const home = homedir();
 
-    this._storeDir = join(home, ".cache/" + cacheName);
+    this._storeDir = join(home, ".cache", cacheName);
     this._metaDir = join(this._storeDir, "meta");
 
     // ensure the cache directory exists
@@ -30,8 +30,18 @@ class Cache {
   }
 
   getStorePath(url: URL) {
-    const savePath = (url.host === "esm.sh" || url.host === "cdn.esm.sh" ? "" : "/-/" + url.host) + url.pathname;
+    const savePath = (url.host === "esm.sh" || url.host === "cdn.esm.sh" ? "" : join("-", url.host)) + url.pathname;
     return join(this._storeDir, savePath);
+  }
+
+  restoreUrl(path: string): URL {
+    const url = new URL(path.substring(this._storeDir.length).replaceAll(sep, "/"), "https://esm.sh");
+    if (url.pathname.startsWith("/-/")) {
+      const pathStart = url.pathname.indexOf("/", 3);
+      url.host = url.pathname.substring(3, pathStart);
+      url.pathname = url.pathname.substring(pathStart);
+    }
+    return url;
   }
 
   async fetch(url: URL): Promise<Response> {
