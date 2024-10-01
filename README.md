@@ -35,15 +35,7 @@ export default function App() {
 
 ## JSX Import Source
 
-By default, the extension smartly detects the JSX import source that is defined in the `importmap` script tag. Supported JSX runtime includes:
-
-- react
-- preact
-- vue
-- solid-js
-- nano-jsx
-
-You can also specify the JSX runtime by adding the `@jsxRuntime` import in the importmap script tag.
+By default, the extension uses [react](https://www.npmjs.com/package/react) or [preact](https://www.npmjs.com/package/preact) as the JSX transform runtime if it's imported in the import map. You can also specify the JSX runtime by adding the `@jsxRuntime` import in the import map.
 
 ```html
 <!-- index.html -->

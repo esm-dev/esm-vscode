@@ -25,7 +25,7 @@ class Plugin implements ts.server.PluginModule {
 
   get jsxImportSource(): string | undefined {
     const { imports } = this.#importMap;
-    for (const specifier of ["@jsxRuntime", "react", "preact", "solid-js", "nano-jsx", "vue"]) {
+    for (const specifier of ["@jsxRuntime", "@jsxImportSource", "react", "preact"]) {
       if (specifier in imports) {
         return imports[specifier];
       }
