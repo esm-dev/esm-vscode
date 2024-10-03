@@ -50,7 +50,7 @@ class Cache {
       return cachedRes;
     }
 
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: { "user-agent": "ES/next" } });
     if (!res.ok) {
       return res;
     }
