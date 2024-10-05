@@ -28,6 +28,21 @@ export function isBlankImportMap(importMap: ImportMap) {
   return true;
 }
 
+export function isSame(a: ImportMap, b: ImportMap): boolean {
+  if (!isSameImports(a.imports, b.imports)) {
+    return false;
+  }
+  for (const k in a.scopes) {
+    if (!(k in b.scopes) || !isObject(b.scopes[k])) {
+      return false;
+    }
+    if (!isSameImports(a.scopes[k], b.scopes[k])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Validate the given import map. */
 export function importMapFrom(v: any, baseURL?: string): ImportMap {
   const im = createBlankImportMap(baseURL);
@@ -135,4 +150,16 @@ function validateScopes(imports: Record<string, unknown>) {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isSameImports(a: Record<string, string>, b: Record<string, string>): boolean {
+  if (Object.keys(a).length !== Object.keys(b).length) {
+    return false;
+  }
+  for (const k in a) {
+    if (a[k] !== b[k]) {
+      return false;
+    }
+  }
+  return true;
 }

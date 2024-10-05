@@ -3,14 +3,14 @@ import * as vscode from "vscode";
 export async function activate(context: vscode.ExtensionContext) {
   const { workspace } = vscode;
   const tsPlugin = await activateTsPlugin();
-  const onIndexHtmlChange = debunce((html: string) => tsPlugin.onIndexHtmlChange(html), 500);
+  const onIndexHtmlChange = debunce((filename: string, html: string) => tsPlugin.onIndexHtmlChange(filename, html), 500);
 
   context.subscriptions.push(
     // watch index.html change and notify ts plugin
     workspace.onDidSaveTextDocument((document) => {
-      const name = workspace.asRelativePath(document.uri);
-      if (name === "index.html") {
-        onIndexHtmlChange(document.getText());
+      const name = "./" + workspace.asRelativePath(document.uri);
+      if (name.endsWith("/index.html")) {
+        onIndexHtmlChange(name, document.getText());
       }
     }),
   );
@@ -38,13 +38,9 @@ async function activateTsPlugin() {
   if (!api) {
     throw new Error("vscode.typescript-language-features api not found");
   }
-  let indexHtml = "";
   return {
-    onIndexHtmlChange: (html: string) => {
-      if (html !== indexHtml) {
-        indexHtml = html;
-        api.configurePlugin("typescript-esmsh-plugin", { indexHtml });
-      }
+    onIndexHtmlChange: (filename: string, html: string) => {
+      api.configurePlugin("typescript-esmsh-plugin", { indexHtml: [filename, html] });
     },
   };
 }

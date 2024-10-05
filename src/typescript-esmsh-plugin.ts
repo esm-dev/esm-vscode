@@ -1,16 +1,15 @@
 import type ts from "typescript";
 import { join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { IText, parse, SyntaxKind, walk } from "html5parser";
-import { createBlankImportMap, type ImportMap, importMapFrom, isBlankImportMap, resolve } from "./import-map.ts";
+import { createBlankImportMap, type ImportMap, importMapFrom, isBlankImportMap, isSame, resolve } from "./import-map.ts";
 import { cache } from "./cache.ts";
 
 let console: Pick<Console, "debug" | "log" | "info" | "warn" | "error"> = globalThis.console;
 
 class Plugin implements ts.server.PluginModule {
   #typescript: typeof ts;
-  #importMap = createBlankImportMap();
-  #isBlankImportMap = true;
+  #importMaps = new Map<string, ImportMap>();
   #urlMappings = new Map<string, string>();
   #typesMappings = new Map<string, string>();
   #httpImports = new Set<string>();
@@ -21,16 +20,6 @@ class Plugin implements ts.server.PluginModule {
 
   constructor(typescript: typeof ts) {
     this.#typescript = typescript;
-  }
-
-  get jsxImportSource(): string | undefined {
-    const { imports } = this.#importMap;
-    for (const specifier of ["@jsxRuntime", "@jsxImportSource", "react", "preact"]) {
-      if (specifier in imports) {
-        return imports[specifier];
-      }
-    }
-    return undefined;
   }
 
   create(info: ts.server.PluginCreateInfo): ts.LanguageService {
@@ -84,37 +73,43 @@ class Plugin implements ts.server.PluginModule {
     }, 500);
 
     // load import map from index.html if exists
-    try {
-      const indexHtmlPath = join(cwd, "index.html");
-      if (existsSync(indexHtmlPath)) {
-        this.#importMap = getImportMapFromHtml(readFileSync(indexHtmlPath, "utf-8"));
-        this.#isBlankImportMap = isBlankImportMap(this.#importMap);
-        console.info("load importmap from index.html", this.#importMap);
+
+    const entries = project.readDirectory(cwd, [".html"]);
+    for (const entry of entries) {
+      const filename = "./" + entry.slice(cwd.length + 1);
+      if (filename.endsWith("/index.html")) {
+        try {
+          const html = project.readFile(join(cwd, filename))!;
+          const importMap = getImportMapFromHtml(filename, html);
+          if (!isBlankImportMap(importMap)) {
+            this.#importMaps.set(filename, importMap);
+            console.info("import map loaded", importMap);
+          }
+        } catch (error) {
+          console.warn("failed to load import map from", filename, error);
+        }
       }
-    } catch (error) {
-      // failed to load import map from index.html
     }
 
     // rewrite TS compiler options
     const getCompilationSettings = languageServiceHost.getCompilationSettings.bind(languageServiceHost);
     languageServiceHost.getCompilationSettings = () => {
       const settings: ts.CompilerOptions = getCompilationSettings() ?? {};
-      if (!this.#isBlankImportMap) {
-        const jsxImportSource = this.jsxImportSource;
-        if (jsxImportSource) {
-          settings.jsx = this.#typescript.JsxEmit.ReactJSX;
-          settings.jsxImportSource = jsxImportSource;
-        }
-        settings.target ??= this.#typescript.ScriptTarget.ESNext;
+      console.debug("getCompilationSettings", settings);
+      if (this.#importMaps.size > 0) {
+        const ts = this.#typescript;
+        settings.target ??= ts.ScriptTarget.ESNext;
         settings.allowArbitraryExtensions = true;
         settings.allowImportingTsExtensions = true;
         settings.allowJs = true;
         settings.useDefineForClassFields = true;
         settings.noEmit = true;
-        settings.module = this.#typescript.ModuleKind.ESNext;
-        settings.moduleResolution = this.#typescript.ModuleResolutionKind.Bundler;
-        settings.moduleDetection = this.#typescript.ModuleDetectionKind.Force;
+        settings.module = ts.ModuleKind.ESNext;
+        settings.moduleResolution = ts.ModuleResolutionKind.Bundler;
+        settings.moduleDetection = ts.ModuleDetectionKind.Force;
         settings.isolatedModules = true;
+        settings.jsx = ts.JsxEmit.ReactJSX;
+        settings.jsxImportSource = "@jsxRuntime";
       }
       return settings;
     };
@@ -185,20 +180,33 @@ class Plugin implements ts.server.PluginModule {
     return languageService;
   }
 
-  onConfigurationChanged(data: { indexHtml: string }): void {
-    this.#importMap = getImportMapFromHtml(data.indexHtml);
-    this.#isBlankImportMap = isBlankImportMap(this.#importMap);
-    this.#updateGraph();
-    console.info("onConfigurationChanged", this.#importMap);
+  onConfigurationChanged(data: { indexHtml: [string, string] }): void {
+    try {
+      const [filename, html] = data.indexHtml;
+      const importMap = getImportMapFromHtml(filename, html);
+      const oldImportMap = this.#importMaps.get(filename);
+      if (!oldImportMap || !isSame(importMap, oldImportMap)) {
+        if (isBlankImportMap(importMap)) {
+          this.#importMaps.delete(filename);
+        } else {
+          this.#importMaps.set(filename, importMap);
+        }
+        this.#updateGraph();
+        console.info("import map updated", importMap);
+      }
+    } catch (error) {
+      console.warn("failed to update import map from", data?.indexHtml?.[0], error);
+    }
   }
 
   resolveModuleName(specifier: string, containingFile: string): ts.ResolvedModuleFull | undefined {
     let importMapResolved = false;
-    if (!this.#isBlankImportMap) {
-      const [url, resolved] = resolve(this.#importMap, specifier, containingFile);
+    for (const [_, im] of this.#importMaps) {
+      const [url, resolved] = resolve(im, specifier, containingFile);
       importMapResolved = resolved;
       if (importMapResolved) {
         specifier = url;
+        break;
       }
     }
     if (!importMapResolved && !isHttpUrl(specifier) && !isRelativePath(specifier)) {
@@ -282,7 +290,6 @@ class Plugin implements ts.server.PluginModule {
       const autoFetch = importMapResolved
         || isHttpUrl(containingFile)
         || toUrl(containingFile).startsWith(toUrl(cache.storeDir))
-        || this.isJsxRuntime(moduleHref)
         || isWellKnownCDNURL(moduleUrl);
       const promise = autoFetch ? cache.fetch(moduleUrl) : Promise.resolve(cache.query(moduleUrl));
       this.#fetchPromises.set(
@@ -323,17 +330,9 @@ class Plugin implements ts.server.PluginModule {
     }
     return { resolvedFileName: moduleHref, extension: ".js" };
   }
-
-  isJsxRuntime(url: string): boolean {
-    const jsxImportSource = this.jsxImportSource;
-    if (jsxImportSource) {
-      return url === jsxImportSource + "/jsx-runtime" || url === jsxImportSource + "/jsx-dev-runtime";
-    }
-    return false;
-  }
 }
 
-function getImportMapFromHtml(html: string): ImportMap {
+function getImportMapFromHtml(filename: string, html: string): ImportMap {
   let importMap = createBlankImportMap();
   try {
     walk(parse(html), {
@@ -345,6 +344,7 @@ function getImportMapFromHtml(html: string): ImportMap {
           const v = JSON.parse(node.body.map((a) => (a as IText).value).join(""));
           if (v && typeof v === "object" && !Array.isArray(v)) {
             importMap = importMapFrom(v);
+            importMap.$src = filename;
           }
         }
       },
@@ -394,7 +394,8 @@ function isRelativePath(path: string): boolean {
   return path.startsWith("./") || path.startsWith("../");
 }
 
-const regexpPackagePath = /\/((@|gh\/|pr\/|jsr\/@)[\w\.\-]+\/)?[\w\.\-]+@(\d+(\.\d+){0,2}(\-[\w\.]+)?|next|canary|rc|beta|latest)$/;
+const regexpPackagePath =
+  /\/((@|gh\/|pr\/|jsr\/@)[\w\.\-]+\/)?[\w\.\-]+@(\d+(\.\d+){0,2}(\-[\w\.]+)?|next|canary|rc|beta|latest)(\/(client|server|internal|hooks|store|utils?|types|components))?$/;
 function isWellKnownCDNURL(url: URL): boolean {
   const { pathname } = url;
   return regexpPackagePath.test(pathname);
