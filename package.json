@@ -1,6 +1,6 @@
 {
   "name": "esm-vscode",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "displayName": "esm.sh",
   "description": "A Visual Studio Code extension loads types(.d.ts) for esm.sh imports.",
   "publisher": "ije",
