@@ -380,9 +380,9 @@ function resolveSpecifierFromImportMaps(importMaps: Iterable<ImportMap>, specifi
     }
   }
   if (specifier === "@jsxImportSource/jsx-runtime") {
-    for (const jsxRuntime of ["react", "preact"]) {
-      for (const im of importMaps) {
-        const [url, resolved] = resolve(im, jsxRuntime, containingFile);
+    for (const im of importMaps) {
+      for (const specifier of ["@jsxRuntime", "@jsxImportSource", "react", "preact"]) {
+        const [url, resolved] = resolve(im, specifier, containingFile);
         if (resolved) {
           return [url, resolved];
         }
