@@ -15,7 +15,7 @@ class Plugin implements ts.server.PluginModule {
   #httpImports = new Set<string>();
   #badImports = new Set<string>();
   #fetchPromises = new Map<string, Promise<void>>();
-
+  #projectDir = "";
   #updateGraph = () => {};
 
   constructor(typescript: typeof ts) {
@@ -24,12 +24,14 @@ class Plugin implements ts.server.PluginModule {
 
   create(info: ts.server.PluginCreateInfo): ts.LanguageService {
     const { languageService, languageServiceHost, project } = info;
-    const cwd = project.getCurrentDirectory();
     const stringify = (a: unknown) => typeof a === "object" ? (a instanceof Error ? a.stack ?? a.message : JSON.stringify(a)) : a;
+
+    // store the project directory
+    this.#projectDir = project.getCurrentDirectory();
 
     // @ts-ignore DEBUG is defined at build time
     if (DEBUG) {
-      const logFilepath = join(cwd, "typescript-esmsh-plugin.log");
+      const logFilepath = join(this.#projectDir, "typescript-esmsh-plugin.log");
       const log = (...args: unknown[]) => {
         const date = new Date().toISOString();
         const message = [date, ...args.map(stringify)];
@@ -73,20 +75,18 @@ class Plugin implements ts.server.PluginModule {
     }, 500);
 
     // load import map from index.html if exists
-
-    const entries = project.readDirectory(cwd, [".html"]);
+    const entries = project.readDirectory(this.#projectDir, [".html"]);
     for (const entry of entries) {
-      const filename = "./" + entry.slice(cwd.length + 1);
-      if (filename.endsWith("/index.html")) {
+      if (entry.endsWith("/index.html")) {
         try {
-          const html = project.readFile(join(cwd, filename))!;
-          const importMap = getImportMapFromHtml(filename, html);
+          const html = project.readFile(entry)!;
+          const importMap = getImportMapFromHtml(entry, html);
           if (!isBlankImportMap(importMap)) {
-            this.#importMaps.set(filename, importMap);
+            this.#importMaps.set(entry, importMap);
             console.info("import map loaded", importMap);
           }
         } catch (error) {
-          console.warn("failed to load import map from", filename, error);
+          console.warn("failed to load import map from", entry, error);
         }
       }
     }
@@ -95,7 +95,6 @@ class Plugin implements ts.server.PluginModule {
     const getCompilationSettings = languageServiceHost.getCompilationSettings.bind(languageServiceHost);
     languageServiceHost.getCompilationSettings = () => {
       const settings: ts.CompilerOptions = getCompilationSettings() ?? {};
-      console.debug("getCompilationSettings", settings);
       if (this.#importMaps.size > 0) {
         const ts = this.#typescript;
         settings.target ??= ts.ScriptTarget.ESNext;
@@ -109,7 +108,7 @@ class Plugin implements ts.server.PluginModule {
         settings.moduleDetection = ts.ModuleDetectionKind.Force;
         settings.isolatedModules = true;
         settings.jsx = ts.JsxEmit.ReactJSX;
-        settings.jsxImportSource = "@jsxRuntime";
+        settings.jsxImportSource = "@jsxImportSource";
       }
       return settings;
     };
@@ -153,7 +152,7 @@ class Plugin implements ts.server.PluginModule {
             const literal = literals[i];
             const resolvedModule = this.resolveModuleName(literal.text, containingFile);
             if (!resolvedModule) {
-              console.debug("unresolved " + literal.text);
+              console.debug("unresolved", JSON.stringify(literal.text), "in", containingFile);
             }
             return { resolvedModule };
           } catch (error) {
@@ -182,14 +181,14 @@ class Plugin implements ts.server.PluginModule {
 
   onConfigurationChanged(data: { indexHtml: [string, string] }): void {
     try {
-      const [filename, html] = data.indexHtml;
-      const importMap = getImportMapFromHtml(filename, html);
-      const oldImportMap = this.#importMaps.get(filename);
+      const [filepath, html] = data.indexHtml;
+      const importMap = getImportMapFromHtml(filepath, html);
+      const oldImportMap = this.#importMaps.get(filepath);
       if (!oldImportMap || !isSame(importMap, oldImportMap)) {
         if (isBlankImportMap(importMap)) {
-          this.#importMaps.delete(filename);
+          this.#importMaps.delete(filepath);
         } else {
-          this.#importMaps.set(filename, importMap);
+          this.#importMaps.set(filepath, importMap);
         }
         this.#updateGraph();
         console.info("import map updated", importMap);
@@ -201,12 +200,30 @@ class Plugin implements ts.server.PluginModule {
 
   resolveModuleName(specifier: string, containingFile: string): ts.ResolvedModuleFull | undefined {
     let importMapResolved = false;
-    for (const [_, im] of this.#importMaps) {
-      const [url, resolved] = resolve(im, specifier, containingFile);
-      importMapResolved = resolved;
-      if (importMapResolved) {
-        specifier = url;
-        break;
+    if (this.#importMaps.size > 0) {
+      if (containingFile.startsWith(this.#projectDir)) {
+        const scopeImportMaps: ImportMap[] = [];
+        for (const [fp, im] of this.#importMaps) {
+          const scope = fp.slice(0, -10); // remove "/index.html"
+          if (containingFile.startsWith(scope)) {
+            scopeImportMaps.push(im);
+          }
+        }
+        if (scopeImportMaps.length > 0) {
+          scopeImportMaps.sort((a, b) => orderByPathSegments(a.$src!, b.$src!));
+          const [url, resolved] = resolveSpecifierFromImportMaps(scopeImportMaps, specifier, containingFile);
+          if (resolved) {
+            importMapResolved = true;
+            specifier = url;
+          }
+        }
+      }
+      if (!importMapResolved) {
+        const [url, resolved] = resolveSpecifierFromImportMaps(this.#importMaps.values(), specifier, containingFile);
+        if (resolved) {
+          importMapResolved = true;
+          specifier = url;
+        }
       }
     }
     if (!importMapResolved && !isHttpUrl(specifier) && !isRelativePath(specifier)) {
@@ -332,7 +349,7 @@ class Plugin implements ts.server.PluginModule {
   }
 }
 
-function getImportMapFromHtml(filename: string, html: string): ImportMap {
+function getImportMapFromHtml(src: string, html: string): ImportMap {
   let importMap = createBlankImportMap();
   try {
     walk(parse(html), {
@@ -344,7 +361,7 @@ function getImportMapFromHtml(filename: string, html: string): ImportMap {
           const v = JSON.parse(node.body.map((a) => (a as IText).value).join(""));
           if (v && typeof v === "object" && !Array.isArray(v)) {
             importMap = importMapFrom(v);
-            importMap.$src = filename;
+            importMap.$src = src;
           }
         }
       },
@@ -353,6 +370,26 @@ function getImportMapFromHtml(filename: string, html: string): ImportMap {
     console.error(err);
   }
   return importMap;
+}
+
+function resolveSpecifierFromImportMaps(importMaps: Iterable<ImportMap>, specifier: string, containingFile: string): [string, boolean] {
+  for (const im of importMaps) {
+    const [url, resolved] = resolve(im, specifier, containingFile);
+    if (resolved) {
+      return [url, resolved];
+    }
+  }
+  if (specifier === "@jsxImportSource/jsx-runtime") {
+    for (const jsxRuntime of ["react", "preact"]) {
+      for (const im of importMaps) {
+        const [url, resolved] = resolve(im, jsxRuntime, containingFile);
+        if (resolved) {
+          return [url, resolved];
+        }
+      }
+    }
+  }
+  return [specifier, false];
 }
 
 function getScriptExtension(pathname: string): string | null {
@@ -415,6 +452,10 @@ function debunce<T extends (...args: any[]) => unknown>(fn: T, ms: number): (...
       fn(...args);
     }, ms) as unknown as number;
   });
+}
+
+function orderByPathSegments(a: string, b: string): number {
+  return b.split("/").length - a.split("/").length;
 }
 
 export function init({ typescript }: { typescript: typeof ts }) {

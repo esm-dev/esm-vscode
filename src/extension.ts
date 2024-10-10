@@ -8,9 +8,9 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     // watch index.html change and notify ts plugin
     workspace.onDidSaveTextDocument((document) => {
-      const name = "./" + workspace.asRelativePath(document.uri);
-      if (name.endsWith("/index.html")) {
-        onIndexHtmlChange(name, document.getText());
+      const filepath = document.uri.path;
+      if (filepath.endsWith("/index.html")) {
+        onIndexHtmlChange(filepath, document.getText());
       }
     }),
   );
