@@ -199,7 +199,7 @@ class Plugin implements ts.server.PluginModule {
   resolveModuleName(specifier: string, containingFile: string): ts.ResolvedModuleFull | undefined {
     let importMapResolved = false;
     if (this.#importMaps.size > 0) {
-      if (containingFile.startsWith(this.#projectDir)) {
+      if (this.#importMaps.size > 1 && containingFile.startsWith(this.#projectDir)) {
         const scopeImportMaps: ImportMap[] = [];
         for (const [fp, im] of this.#importMaps) {
           const scope = fp.slice(0, -10); // remove "/index.html"
