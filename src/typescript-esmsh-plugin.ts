@@ -132,11 +132,9 @@ class Plugin implements ts.server.PluginModule {
                 cache.fetch(refUrl).then(async res => {
                   if (!res.ok) {
                     this.#badImports.add(refHref);
-                  } else {
-                    console.debug("fetched missing types", refHref);
                   }
                 }).catch(err => {
-                  console.warn(`Failed to fetch missing types(${refHref}):`, err);
+                  console.warn(`Failed to fetch types(${refHref}):`, err);
                 }).finally(() => {
                   this.#fetchPromises.delete(refHref);
                 }),
