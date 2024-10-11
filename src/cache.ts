@@ -10,7 +10,6 @@ interface CacheMeta {
   ctime: number;
 }
 
-/** A cache that stores responses in IndexedDB. */
 class Cache {
   private _storeDir: string;
   private _metaDir: string;

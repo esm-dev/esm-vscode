@@ -61,7 +61,7 @@ class Plugin implements ts.server.PluginModule {
 
     this.#updateGraph = debunce(() => {
       const { projectService } = project;
-      // @ts-ignore internal APIs
+      // @ts-ignore internal APIs of TypeScript
       const clearSemanticCache = projectService.clearSemanticCache.bind(projectService);
       if (clearSemanticCache) {
         clearSemanticCache(project);
@@ -109,7 +109,7 @@ class Plugin implements ts.server.PluginModule {
       );
     };
 
-    // load&watch all existing import maps from index.html files
+    // load and watch all existing import maps from index.html files
     const entries = project.readDirectory(this.#projectDir, [".html"]);
     for (const entry of entries) {
       if (entry.endsWith("/index.html")) {
@@ -135,7 +135,7 @@ class Plugin implements ts.server.PluginModule {
       }
     }, true);
 
-    // rewrite TS compiler options
+    // rewrite TS compiler options if import maps are used
     const getCompilationSettings = languageServiceHost.getCompilationSettings.bind(languageServiceHost);
     languageServiceHost.getCompilationSettings = () => {
       const settings: ts.CompilerOptions = getCompilationSettings() ?? {};

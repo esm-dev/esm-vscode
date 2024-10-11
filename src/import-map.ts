@@ -1,4 +1,4 @@
-/** The import maps follow the spec at https://wicg.github.io/import-maps/. */
+/** The ImportMap interface follow the spec at https://wicg.github.io/import-maps/. */
 export interface ImportMap {
   $baseURL: string;
   $src?: string;
@@ -28,6 +28,7 @@ export function isBlankImportMap(importMap: ImportMap) {
   return true;
 }
 
+/** Check if the two import maps are the same. */
 export function isSame(a: ImportMap, b: ImportMap): boolean {
   if (!isSameImports(a.imports, b.imports)) {
     return false;
@@ -60,6 +61,7 @@ export function importMapFrom(v: any, baseURL?: string): ImportMap {
   return im;
 }
 
+/** Parse the import map from the given HTML. */
 export function importMapFromHtml(src: string, html: string): ImportMap {
   let importMap = createBlankImportMap();
   try {
@@ -159,9 +161,7 @@ function isSameImports(a: Record<string, string>, b: Record<string, string>): bo
 
 import { INode, IText, parse, SyntaxKind } from "html5parser";
 
-export interface VisitFn {
-  (node: INode, parent: INode | undefined, index: number): false | void;
-}
+type VisitFn = (node: INode, parent: INode | undefined, index: number) => false | void;
 
 function visit(node: INode, parent: INode | undefined, index: number, enter: VisitFn): false | void {
   if (enter(node, parent, index) === false) {
