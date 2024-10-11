@@ -153,7 +153,7 @@ class Plugin implements ts.server.PluginModule {
         settings.moduleDetection = ts.ModuleDetectionKind.Force;
         settings.isolatedModules = true;
         settings.jsx = ts.JsxEmit.ReactJSX;
-        settings.jsxImportSource = "@jsxImportSource";
+        settings.jsxImportSource = "@jsxRuntime";
       }
       return settings;
     };
@@ -233,7 +233,7 @@ class Plugin implements ts.server.PluginModule {
   resolveModuleName(specifier: string, containingFile: string): ts.ResolvedModuleFull | undefined {
     let importMapResolved = false;
     if (this.#importMaps.size > 0) {
-      if (this.#importMaps.size > 1 && containingFile.startsWith(this.#projectDir)) {
+      if (containingFile.startsWith(this.#projectDir)) {
         const scopeImportMaps: ImportMap[] = [];
         for (const [fp, im] of this.#importMaps) {
           const scope = fp.slice(0, -10); // remove "/index.html"
@@ -249,10 +249,8 @@ class Plugin implements ts.server.PluginModule {
             specifier = url;
           }
         }
-      }
-      if (!importMapResolved) {
-        const importMaps = Array.from(this.#importMaps.values());
-        const [url, resolved] = resolveSpecifierFromImportMaps(importMaps, specifier, containingFile);
+      } else {
+        const [url, resolved] = resolveSpecifierFromImportMaps(Array.from(this.#importMaps.values()), specifier, containingFile);
         if (resolved) {
           importMapResolved = true;
           specifier = url;
@@ -405,16 +403,16 @@ function getImportMapFromHtml(src: string, html: string): ImportMap {
   return importMap;
 }
 
-function resolveSpecifierFromImportMaps(importMaps: Iterable<ImportMap>, specifier: string, containingFile: string): [string, boolean] {
+function resolveSpecifierFromImportMaps(importMaps: ImportMap[], specifier: string, containingFile: string): [string, boolean] {
   for (const im of importMaps) {
     const [url, resolved] = resolve(im, specifier, containingFile);
     if (resolved) {
       return [url, true];
     }
   }
-  if (specifier === "@jsxImportSource/jsx-runtime") {
+  if (specifier === "@jsxRuntime/jsx-runtime") {
     for (const im of importMaps) {
-      for (const jsx of ["@jsxRuntime/jsx-runtime", "react/jsx-runtime", "preact/jsx-runtime"]) {
+      for (const jsx of ["react/jsx-runtime", "preact/jsx-runtime"]) {
         const [url, resolved] = resolve(im, jsx, containingFile);
         if (resolved) {
           return [url, true];
