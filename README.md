@@ -36,7 +36,7 @@ export default function App() {
 
 ## JSX Import Source
 
-By default, the extension uses [react](https://www.npmjs.com/package/react) or [preact](https://www.npmjs.com/package/preact) as the JSX transform runtime if it's specified in the import map. You can change the JSX import source by setting the `@jsxRuntime` import in the importmap script tag.
+By default, the extension uses [react](https://www.npmjs.com/package/react) or [preact](https://www.npmjs.com/package/preact) as the JSX transform runtime if it's specified in the import map. You can specify it by setting the `@jsxRuntime` import in the importmap script tag.
 
 ```html
 <script type="importmap">
