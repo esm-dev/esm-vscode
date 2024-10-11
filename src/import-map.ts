@@ -2,7 +2,6 @@
 export interface ImportMap {
   $baseURL: string;
   $src?: string;
-  $support?: boolean;
   imports: Record<string, string>;
   scopes: Record<string, Record<string, string>>;
 }
@@ -11,7 +10,6 @@ export interface ImportMap {
 export function createBlankImportMap(baseURL?: string): ImportMap {
   return {
     $baseURL: new URL(baseURL ?? ".", "file:///").href,
-    $support: globalThis.HTMLScriptElement?.supports?.("importmap"),
     imports: {},
     scopes: {},
   };
