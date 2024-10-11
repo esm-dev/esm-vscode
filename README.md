@@ -8,7 +8,7 @@ A Visual Studio Code extension loads types(.d.ts) for [esm.sh](https://esm.sh) i
 
 ## Using Import Maps
 
-This extension respects `importmap` script tag in the `index.html` of your project root. With [import maps](https://github.com/WICG/import-maps), you can use "bare import specifiers", such as `import React from "react"`, to work.
+This extension respects `importmap` script tag in `index.html` files of your project. With [import maps](https://github.com/WICG/import-maps), you can use "bare import specifiers", such as `import React from "react"`, to work.
 
 ```html
 <!-- index.html -->
@@ -20,26 +20,25 @@ This extension respects `importmap` script tag in the `index.html` of your proje
     }
   }
 </script>
-<script type="module" src="./app.jsx"></script>
+<script type="module" src="./app.tsx"></script>
 ```
 
-```jsx
-// app.jsx
+```tsx
+// app.tsx
 
 import { useState } from "react";
 
 export default function App() {
-  return <h1>Hello World!</h1>;
+  const [message, setMessage] = useState<string>("Hello World!");
+  return <h1>{message}</h1>;
 }
 ```
 
 ## JSX Import Source
 
-By default, the extension uses [react](https://www.npmjs.com/package/react) or [preact](https://www.npmjs.com/package/preact) as the JSX transform runtime if it's imported in the import map. You can also specify the JSX runtime by adding the `@jsxRuntime` import in the import map.
+By default, the extension uses [react](https://www.npmjs.com/package/react) or [preact](https://www.npmjs.com/package/preact) as the JSX transform runtime if it's specified in the import map. You can change the JSX import source by setting the `@jsxRuntime` import in the importmap script tag.
 
 ```html
-<!-- index.html -->
-
 <script type="importmap">
   {
     "imports": {
