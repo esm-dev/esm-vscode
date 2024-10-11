@@ -74,7 +74,7 @@ class Plugin implements ts.server.PluginModule {
       }
     }, 500);
 
-    const imWatchers = new Map<string, ts.FileWatcher>();
+    const fileWatchers = new Map<string, ts.FileWatcher>();
     const loadAndWatchImportMapFromIndexHtml = (filename: string) => {
       try {
         const html = project.readFile(filename)!;
@@ -86,7 +86,7 @@ class Plugin implements ts.server.PluginModule {
       } catch (error) {
         console.warn("failed to load import map from", filename, error);
       }
-      imWatchers.set(
+      fileWatchers.set(
         filename,
         serverHost.watchFile(filename, (filename, kind) => {
           if (kind === this.#typescript.FileWatcherEventKind.Changed) {
@@ -121,9 +121,9 @@ class Plugin implements ts.server.PluginModule {
     // watch for index.html create/delete events
     const projectDirWatcher = serverHost.watchDirectory(this.#projectDir, (filename) => {
       if (filename.endsWith("/index.html")) {
-        if (imWatchers.has(filename)) {
-          imWatchers.get(filename)!.close();
-          imWatchers.delete(filename);
+        if (fileWatchers.has(filename)) {
+          fileWatchers.get(filename)!.close();
+          fileWatchers.delete(filename);
         }
         if (project.fileExists(filename)) {
           loadAndWatchImportMapFromIndexHtml(filename);
@@ -222,7 +222,7 @@ class Plugin implements ts.server.PluginModule {
     const dispose = languageService.dispose.bind(languageService);
     languageService.dispose = () => {
       projectDirWatcher.close();
-      imWatchers.forEach((watcher) => watcher.close());
+      fileWatchers.forEach((watcher) => watcher.close());
       dispose();
     };
 
@@ -338,7 +338,7 @@ class Plugin implements ts.server.PluginModule {
       const autoFetch = importMapResolved
         || isHttpUrl(containingFile)
         || toUrl(containingFile).startsWith(toUrl(cache.storeDir))
-        || isWellKnownCDNURL(moduleUrl);
+        || isWellKnownESMURL(moduleUrl);
       const promise = autoFetch ? cache.fetch(moduleUrl) : Promise.resolve(cache.query(moduleUrl));
       this.#fetchPromises.set(
         moduleHref,
@@ -462,11 +462,11 @@ function isRelativePath(path: string): boolean {
   return path.startsWith("./") || path.startsWith("../");
 }
 
-const regexpPackagePath =
+const regexpESMPath =
   /\/((@|gh\/|pr\/|jsr\/@)[\w\.\-]+\/)?[\w\.\-]+@(\d+(\.\d+){0,2}(\-[\w\.]+)?|next|canary|rc|beta|latest)(\/(client|server|internal|hooks|store|utils?|types|components))?$/;
-function isWellKnownCDNURL(url: URL): boolean {
+function isWellKnownESMURL(url: URL): boolean {
   const { pathname } = url;
-  return regexpPackagePath.test(pathname);
+  return regexpESMPath.test(pathname);
 }
 
 function toUrl(path: string): string {
