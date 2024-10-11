@@ -23,7 +23,7 @@ class Plugin implements ts.server.PluginModule {
   }
 
   create(info: ts.server.PluginCreateInfo): ts.LanguageService {
-    const { languageService, languageServiceHost, project } = info;
+    const { languageService, languageServiceHost, project, serverHost } = info;
     const stringify = (a: unknown) => typeof a === "object" ? (a instanceof Error ? a.stack ?? a.message : JSON.stringify(a)) : a;
 
     // store the project directory
@@ -74,22 +74,67 @@ class Plugin implements ts.server.PluginModule {
       }
     }, 500);
 
-    // load import map from index.html if exists
+    const imWatchers = new Map<string, ts.FileWatcher>();
+    const loadAndWatchImportMapFromIndexHtml = (filename: string) => {
+      try {
+        const html = project.readFile(filename)!;
+        const importMap = getImportMapFromHtml(filename, html);
+        if (!isBlankImportMap(importMap)) {
+          this.#importMaps.set(filename, importMap);
+          console.info("import map loaded", importMap);
+        }
+      } catch (error) {
+        console.warn("failed to load import map from", filename, error);
+      }
+      imWatchers.set(
+        filename,
+        serverHost.watchFile(filename, (filename, kind) => {
+          if (kind === this.#typescript.FileWatcherEventKind.Changed) {
+            const html = project.readFile(filename)!;
+            const importMap = getImportMapFromHtml(filename, html);
+            if (isBlankImportMap(importMap)) {
+              if (this.#importMaps.delete(filename)) {
+                this.#updateGraph();
+                console.info("import map deleted due to blank", filename);
+              }
+            } else {
+              const oldImportMap = this.#importMaps.get(filename);
+              if (!oldImportMap || !isSame(oldImportMap, importMap)) {
+                this.#importMaps.set(filename, importMap);
+                this.#updateGraph();
+                console.info("import map updated", importMap);
+              }
+            }
+          }
+        }),
+      );
+    };
+
+    // load&watch all existing import maps from index.html files
     const entries = project.readDirectory(this.#projectDir, [".html"]);
     for (const entry of entries) {
       if (entry.endsWith("/index.html")) {
-        try {
-          const html = project.readFile(entry)!;
-          const importMap = getImportMapFromHtml(entry, html);
-          if (!isBlankImportMap(importMap)) {
-            this.#importMaps.set(entry, importMap);
-            console.info("import map loaded", importMap);
-          }
-        } catch (error) {
-          console.warn("failed to load import map from", entry, error);
-        }
+        loadAndWatchImportMapFromIndexHtml(entry);
       }
     }
+
+    // watch for index.html create/delete events
+    const projectDirWatcher = serverHost.watchDirectory(this.#projectDir, (filename) => {
+      if (filename.endsWith("/index.html")) {
+        if (imWatchers.has(filename)) {
+          imWatchers.get(filename)!.close();
+          imWatchers.delete(filename);
+        }
+        if (project.fileExists(filename)) {
+          loadAndWatchImportMapFromIndexHtml(filename);
+        } else {
+          if (this.#importMaps.delete(filename)) {
+            this.#updateGraph();
+            console.info("import map deleted", filename);
+          }
+        }
+      }
+    }, true);
 
     // rewrite TS compiler options
     const getCompilationSettings = languageServiceHost.getCompilationSettings.bind(languageServiceHost);
@@ -113,7 +158,7 @@ class Plugin implements ts.server.PluginModule {
       return settings;
     };
 
-    // hijack resolveModuleNameLiterals
+    // hijack the `resolveModuleNameLiterals` method
     const resolveModuleNameLiterals = languageServiceHost.resolveModuleNameLiterals?.bind(languageServiceHost);
     if (resolveModuleNameLiterals) {
       languageServiceHost.resolveModuleNameLiterals = (literals, containingFile: string, ...rest) => {
@@ -173,27 +218,16 @@ class Plugin implements ts.server.PluginModule {
       return result;
     };
 
+    // override the `dispose` method
+    const dispose = languageService.dispose.bind(languageService);
+    languageService.dispose = () => {
+      projectDirWatcher.close();
+      imWatchers.forEach((watcher) => watcher.close());
+      dispose();
+    };
+
     console.info("plugin created, typescrpt v" + this.#typescript.version);
     return languageService;
-  }
-
-  onConfigurationChanged(data: { indexHtml: [string, string] }): void {
-    try {
-      const [filepath, html] = data.indexHtml;
-      const importMap = getImportMapFromHtml(filepath, html);
-      const oldImportMap = this.#importMaps.get(filepath);
-      if (!oldImportMap || !isSame(importMap, oldImportMap)) {
-        if (isBlankImportMap(importMap)) {
-          this.#importMaps.delete(filepath);
-        } else {
-          this.#importMaps.set(filepath, importMap);
-        }
-        this.#updateGraph();
-        console.info("import map updated", importMap);
-      }
-    } catch (error) {
-      console.warn("failed to update import map from", data?.indexHtml?.[0], error);
-    }
   }
 
   resolveModuleName(specifier: string, containingFile: string): ts.ResolvedModuleFull | undefined {
@@ -217,7 +251,8 @@ class Plugin implements ts.server.PluginModule {
         }
       }
       if (!importMapResolved) {
-        const [url, resolved] = resolveSpecifierFromImportMaps(this.#importMaps.values(), specifier, containingFile);
+        const importMaps = Array.from(this.#importMaps.values());
+        const [url, resolved] = resolveSpecifierFromImportMaps(importMaps, specifier, containingFile);
         if (resolved) {
           importMapResolved = true;
           specifier = url;
@@ -374,15 +409,15 @@ function resolveSpecifierFromImportMaps(importMaps: Iterable<ImportMap>, specifi
   for (const im of importMaps) {
     const [url, resolved] = resolve(im, specifier, containingFile);
     if (resolved) {
-      return [url, resolved];
+      return [url, true];
     }
   }
   if (specifier === "@jsxImportSource/jsx-runtime") {
     for (const im of importMaps) {
-      for (const specifier of ["@jsxRuntime", "react", "preact"]) {
-        const [url, resolved] = resolve(im, specifier, containingFile);
+      for (const jsx of ["@jsxRuntime/jsx-runtime", "react/jsx-runtime", "preact/jsx-runtime"]) {
+        const [url, resolved] = resolve(im, jsx, containingFile);
         if (resolved) {
-          return [url, resolved];
+          return [url, true];
         }
       }
     }
