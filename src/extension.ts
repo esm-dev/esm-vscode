@@ -1,6 +1,6 @@
 import type { ExtensionContext, Position, QuickPickItem, TextDocument } from "vscode";
 import { CodeLens, commands, EndOfLine, extensions, languages, Range, window, workspace, WorkspaceEdit } from "vscode";
-import { findImportMapScriptInHtml } from "./import-map";
+import { findImportMapScriptInHtml, importMapFrom } from "./import-map";
 
 export async function activate(context: ExtensionContext) {
   languages.registerCodeLensProvider("html", {
@@ -53,7 +53,11 @@ export async function activate(context: ExtensionContext) {
       if (!pkg) {
         return;
       }
-      const { imports = {}, scopes = {} } = JSON.parse(importMap.value);
+      let v: unknown;
+      try {
+        v = JSON.parse(importMap.value);
+      } catch {}
+      const { imports, scopes } = importMapFrom(v);
       const specifier = "https://esm.sh/" + pkg.name + "@" + pkg.version;
       if (imports[pkg.name] === specifier) {
         return;
