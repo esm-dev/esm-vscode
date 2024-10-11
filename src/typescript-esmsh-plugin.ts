@@ -61,12 +61,12 @@ class Plugin implements ts.server.PluginModule {
 
     this.#updateGraph = debunce(() => {
       const { projectService } = project;
-      projectService.getScriptInfo;
       // @ts-ignore internal APIs
       const clearSemanticCache = projectService.clearSemanticCache.bind(projectService);
       if (clearSemanticCache) {
         clearSemanticCache(project);
         project.updateGraph();
+        project.refreshDiagnostics();
       } else {
         // in case TS changes it's internal APIs, we fallback to force reload all projects
         projectService.reloadProjects();
