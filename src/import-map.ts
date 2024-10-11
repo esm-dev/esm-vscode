@@ -60,25 +60,18 @@ export function importMapFrom(v: any, baseURL?: string): ImportMap {
   return im;
 }
 
-/** Parse the import map from JSON. */
-export function parseImportMapFromJson(json: string, baseURL?: string): ImportMap {
-  const importMap: ImportMap = {
-    $baseURL: new URL(baseURL ?? ".", "file:///").href,
-    $support: globalThis.HTMLScriptElement?.supports?.("importmap"),
-    imports: {},
-    scopes: {},
-  };
-  const v = JSON.parse(json);
-  if (isObject(v)) {
-    const { imports, scopes } = v;
-    if (isObject(imports)) {
-      validateImports(imports);
-      importMap.imports = imports as ImportMap["imports"];
-    }
-    if (isObject(scopes)) {
-      validateScopes(scopes);
-      importMap.scopes = scopes as ImportMap["scopes"];
-    }
+export function importMapFromHtml(src: string, html: string): ImportMap {
+  let importMap = createBlankImportMap();
+  try {
+    findImportMapScriptInHtml(html, (text) => {
+      const v = JSON.parse(text.value);
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        importMap = importMapFrom(v);
+        importMap.$src = src;
+      }
+    });
+  } catch (err) {
+    console.error("failed to parse import map from", src, err);
   }
   return importMap;
 }
@@ -162,4 +155,45 @@ function isSameImports(a: Record<string, string>, b: Record<string, string>): bo
     }
   }
   return true;
+}
+
+import { INode, IText, parse, SyntaxKind } from "html5parser";
+
+export interface VisitFn {
+  (node: INode, parent: INode | undefined, index: number): false | void;
+}
+
+function visit(node: INode, parent: INode | undefined, index: number, enter: VisitFn): false | void {
+  if (enter(node, parent, index) === false) {
+    return false;
+  }
+  if (node.type === SyntaxKind.Tag && Array.isArray(node.body)) {
+    for (let i = 0; i < node.body.length; i++) {
+      if (visit(node.body[i], node, i, enter) === false) {
+        return false;
+      }
+    }
+  }
+}
+
+function walkHtml(html: string, enter: VisitFn) {
+  const ast = parse(html);
+  for (let i = 0; i < ast.length; i++) {
+    if (visit(ast[i], void 0, i, enter) === false) {
+      break;
+    }
+  }
+}
+
+export function findImportMapScriptInHtml(html: string, callback: (text: IText, node: INode) => void) {
+  walkHtml(html, (node) => {
+    if (
+      node.type === SyntaxKind.Tag && node.name === "script"
+      && node.attributes.some((a) => a.name.value === "type" && a.value?.value === "importmap")
+      && node.body && node.body.length === 1 && node.body[0].type === SyntaxKind.Text
+    ) {
+      callback(node.body[0] as IText, node);
+      return false;
+    }
+  });
 }

@@ -1,8 +1,7 @@
 import type ts from "typescript";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
-import { IText, parse, SyntaxKind, walk } from "html5parser";
-import { createBlankImportMap, type ImportMap, importMapFrom, isBlankImportMap, isSame, resolve } from "./import-map.ts";
+import { type ImportMap, importMapFromHtml, isBlankImportMap, isSame, resolve } from "./import-map.ts";
 import { cache } from "./cache.ts";
 
 let console: Pick<Console, "debug" | "log" | "info" | "warn" | "error"> = globalThis.console;
@@ -78,7 +77,7 @@ class Plugin implements ts.server.PluginModule {
     const loadAndWatchImportMapFromIndexHtml = (filename: string) => {
       try {
         const html = project.readFile(filename)!;
-        const importMap = getImportMapFromHtml(filename, html);
+        const importMap = importMapFromHtml(filename, html);
         if (!isBlankImportMap(importMap)) {
           this.#importMaps.set(filename, importMap);
           console.info("import map loaded", importMap);
@@ -91,7 +90,7 @@ class Plugin implements ts.server.PluginModule {
         serverHost.watchFile(filename, (filename, kind) => {
           if (kind === this.#typescript.FileWatcherEventKind.Changed) {
             const html = project.readFile(filename)!;
-            const importMap = getImportMapFromHtml(filename, html);
+            const importMap = importMapFromHtml(filename, html);
             if (isBlankImportMap(importMap)) {
               if (this.#importMaps.delete(filename)) {
                 this.#updateGraph();
@@ -242,7 +241,7 @@ class Plugin implements ts.server.PluginModule {
           }
         }
         if (scopeImportMaps.length > 0) {
-          scopeImportMaps.sort((a, b) => orderByPathSegments(a.$src!, b.$src!));
+          scopeImportMaps.sort((a, b) => orderByPathSegmentLength(a.$src!, b.$src!));
           const [url, resolved] = resolveSpecifierFromImportMaps(scopeImportMaps, specifier, containingFile);
           if (resolved) {
             importMapResolved = true;
@@ -380,29 +379,6 @@ class Plugin implements ts.server.PluginModule {
   }
 }
 
-function getImportMapFromHtml(src: string, html: string): ImportMap {
-  let importMap = createBlankImportMap();
-  try {
-    walk(parse(html), {
-      enter: (node) => {
-        if (
-          node.type === SyntaxKind.Tag && node.name === "script" && node.body
-          && node.attributes.some((a) => a.name.value === "type" && a.value?.value === "importmap")
-        ) {
-          const v = JSON.parse(node.body.map((a) => (a as IText).value).join(""));
-          if (v && typeof v === "object" && !Array.isArray(v)) {
-            importMap = importMapFrom(v);
-            importMap.$src = src;
-          }
-        }
-      },
-    });
-  } catch (err) {
-    console.error(err);
-  }
-  return importMap;
-}
-
 function resolveSpecifierFromImportMaps(importMaps: ImportMap[], specifier: string, containingFile: string): [string, boolean] {
   for (const im of importMaps) {
     const [url, resolved] = resolve(im, specifier, containingFile);
@@ -485,7 +461,7 @@ function debunce<T extends (...args: any[]) => unknown>(fn: T, ms: number): (...
   });
 }
 
-function orderByPathSegments(a: string, b: string): number {
+function orderByPathSegmentLength(a: string, b: string): number {
   return b.split("/").length - a.split("/").length;
 }
 
