@@ -1,5 +1,5 @@
 import type { ExtensionContext, Position, QuickPickItem, TextDocument } from "vscode";
-import { CodeLens, commands, extensions, languages, Range, window, workspace, WorkspaceEdit } from "vscode";
+import { CodeLens, commands, EndOfLine, extensions, languages, Range, window, workspace, WorkspaceEdit } from "vscode";
 import { findImportMapScriptInHtml } from "./import-map";
 
 export async function activate(context: ExtensionContext) {
@@ -53,21 +53,19 @@ export async function activate(context: ExtensionContext) {
       if (!pkg) {
         return;
       }
-      const { imports, scopes = {} } = JSON.parse(importMap.value);
+      const { imports = {}, scopes = {} } = JSON.parse(importMap.value);
       const specifier = "https://esm.sh/" + pkg.name + "@" + pkg.version;
       if (imports[pkg.name] === specifier) {
         return;
       }
       imports[pkg.name] = specifier;
       const json = JSON.stringify({ imports, scopes: Object.keys(scopes).length > 0 ? scopes : undefined }, null, 2);
-      const workspaceEdit = new WorkspaceEdit();
-      const indent = "  ";
-      workspaceEdit.replace(
-        doc.uri,
-        new Range(doc.positionAt(importMap.start), doc.positionAt(importMap.end)),
-        "\n" + json.split("\n").map((line, i) => indent.repeat(2) + line).join("\n") + "\n" + indent,
-      );
-      await workspace.applyEdit(workspaceEdit);
+      const indent = /^[\n\r]+\t+/.test(importMap.value) ? "\t" : "  ";
+      const eol = doc.eol === EndOfLine.LF ? "\n" : "\r\n";
+      const formattedJson = eol + json.split("\n").map((line, i) => indent.repeat(2) + line).join(eol) + eol + indent;
+      const edit = new WorkspaceEdit();
+      edit.replace(doc.uri, new Range(doc.positionAt(importMap.start), doc.positionAt(importMap.end)), formattedJson);
+      await workspace.applyEdit(edit);
     },
   );
   await activateTsPlugin();
