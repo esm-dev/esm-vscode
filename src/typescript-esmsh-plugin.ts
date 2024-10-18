@@ -388,10 +388,10 @@ function resolveSpecifierFromImportMaps(importMaps: ImportMap[], specifier: stri
   }
   if (specifier === "@jsxRuntime/jsx-runtime") {
     for (const im of importMaps) {
-      for (const jsx of ["react/jsx-runtime", "preact/jsx-runtime"]) {
+      for (const jsx of ["preact", "react"]) {
         const [url, resolved] = resolve(im, jsx, containingFile);
         if (resolved) {
-          return [url, true];
+          return [url + "/jsx-runtime", true];
         }
       }
     }
