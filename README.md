@@ -55,3 +55,8 @@ This extension provides some useful snippets for working with ESM modules in HTM
 - `importmap`: Insert a new import map script tag.
 - `module`: Insert a new module script tag.
 - `module-with-src`: Insert a new module script tag with `src` attribute.
+
+## Roadmap
+
+- Support Windows platform
+- Import map version code lens
